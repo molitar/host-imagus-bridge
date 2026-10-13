@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Host Imagus Bridge",
-  "version": "2.1.0",
+  "version": "2.1.5",
   "description": "Media resolution bridge with Sieve-first Imagus integration and native DLsite gallery fallback.",
   "permissions": [
     "tabs",

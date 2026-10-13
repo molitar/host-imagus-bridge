@@ -1,4 +1,4 @@
-# Host Imagus Bridge (HIB) v2.1.0
+# Host Imagus Bridge (HIB) v2.1.5
 
 | Preview Builds | Release Builds | License | Downloads |
 |:---:|:---:|:---:|:---:|
@@ -213,7 +213,7 @@ HIB is particularly useful for:
 
 ## Current project status
 
-**Version:** 2.1.0 release candidate  
+**Version:** 2.1.5 release candidate  
 **Platform:** Firefox / compatible Firefox-based environments  
 **Integration:** Imagus Reborn companion  
 **Distribution:** Firefox `.xpi`  

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.5 - 2026-10-13
+
+Polish for the built-in image gallery. This is a release candidate: Mozilla signing is pending.
+
+### Improved
+
+- **Automatic gallery size now fills the window.** The gallery frame uses the available browser window (with a narrow margin) and the picture keeps its proportions, instead of shrinking to the image's own size. Preset sizes (960x540 up to 4K) and custom sizes work as before.
+- **Previous / next arrows sit on top of the image** (semi-transparent, brighter on hover) instead of outside the frame, so they no longer need extra room on narrow windows. They have screen-reader labels ("Previous image", "Next image").
+- Version labels in the extension's console messages now read 2.1.5.
+
 ## 2.1.0 - 2026-10-13
 
 A major improvement in how Host Imagus Bridge works with Imagus Reborn. This is a release candidate: Mozilla signing is pending and full runtime regression testing is still required.
