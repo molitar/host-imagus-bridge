@@ -2,7 +2,7 @@
 # Publish Host Imagus Bridge from your PC (WSL), so the server never talks to GitHub.
 #
 # Usage (from WSL):
-#   publish.sh NOTES.md [--prerelease] [--yes] [--dry-run] [--no-sync-back]
+#   publish.sh NOTES.md [--prerelease] [--replace] [--yes] [--dry-run] [--no-sync-back]
 #
 # The editing happens on the server (strix), as before: bump the version in
 # manifest.json and write release-notes/<version>.md there. This script then:
