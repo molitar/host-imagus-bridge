@@ -22,6 +22,9 @@
 # --prerelease  marks the GitHub release as a pre-release (for example while the
 #               xpi is unsigned and waiting for Mozilla). tools/promote-release.sh
 #               turns it into the normal release once the signed xpi is attached.
+# --replace     redo a version that is already released (for example a fix made before
+#               Mozilla signed it): commits the changes, moves the tag, deletes the
+#               GitHub release and creates it again with the new xpi.
 # --dry-run     does steps 1, 2 and the summary only: nothing is committed or pushed.
 #
 # Set XPI_OUT_DIR to change where the xpi is written (default ~/hib-builds).
@@ -41,6 +44,8 @@ NOTES_ARG=""
 ASSUME_YES=0
 DRY_RUN=0
 PRERELEASE=0
+REPLACE=0
+REPLACING=0
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 say() { echo "==> $*"; }
@@ -50,6 +55,7 @@ for arg in "$@"; do
     --yes|-y) ASSUME_YES=1 ;;
     --dry-run|-n) DRY_RUN=1 ;;
     --prerelease|-p) PRERELEASE=1 ;;
+    --replace) REPLACE=1 ;;
     -h|--help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) die "unknown option: $arg" ;;
     *) [ -z "$NOTES_ARG" ] || die "only one notes file, got a second: $arg"; NOTES_ARG="$arg" ;;
@@ -121,10 +127,13 @@ if [ "$DRY_RUN" = "0" ] || [ "$TAG_EXISTS" = "1" ]; then
 fi
 if [ "$TAG_EXISTS" = "1" ]; then
   if gh_cmd release view "$TAG" >/dev/null 2>&1; then
-    die "$TAG is already released on GitHub. Bump the version in manifest.json."
+    [ "$REPLACE" = "1" ] || die "$TAG is already released on GitHub. Bump the version in manifest.json (or use --replace to redo this exact version)."
+    REPLACING=1
+    say "REPLACE: $TAG is already released; the tag will be moved to the new commit and the release recreated with the new xpi"
+  else
+    RESUME=1
+    say "Tag $TAG is already pushed but has no GitHub release yet: only the release will be created"
   fi
-  RESUME=1
-  say "Tag $TAG is already pushed but has no GitHub release yet: only the release will be created"
 fi
 
 # ------------------------------------------------------------------ 2. xpi
@@ -259,16 +268,28 @@ fi
 # --------------------------------------------- 5. commit, tag, push, release
 if [ "$RESUME" = "0" ]; then
   say "Committing"
-  git commit --quiet -m "Release $VERSION" -m "$(head -n 1 "$NOTES" | sed 's/^#* *//')"
-  git tag -a "$TAG" -m "Host Imagus Bridge $TAG"
+  if [ "$REPLACING" = "1" ]; then
+    git diff --cached --quiet && die "nothing has changed since $TAG was published, so there is nothing to replace."
+    git commit --quiet -m "Update $VERSION: changes made before it was signed" -m "$(head -n 1 "$NOTES" | sed 's/^#* *//')"
+    git tag -f -a "$TAG" -m "Host Imagus Bridge $TAG" >/dev/null
+  else
+    git commit --quiet -m "Release $VERSION" -m "$(head -n 1 "$NOTES" | sed 's/^#* *//')"
+    git tag -a "$TAG" -m "Host Imagus Bridge $TAG"
+  fi
 
   say "Pushing"
   git_remote push "$REMOTE" "$BRANCH" || die "push failed. Your commit and tag are saved locally; fix the problem and run this command again."
-  git_remote push "$REMOTE" "$TAG"
+  if [ "$REPLACING" = "1" ]; then
+    git_remote push --force "$REMOTE" "$TAG"
+    say "Removing the old GitHub release $TAG"
+    gh_cmd release delete "$TAG" --yes || die "could not delete the old release. The code and the moved tag are pushed: run the same command again."
+  else
+    git_remote push "$REMOTE" "$TAG"
+  fi
 fi
 
 say "Creating the GitHub release"
-RELEASE_ARGS=(--title "Host Imagus Bridge $TAG" --notes-file "$(native_path "$NOTES")")
+RELEASE_ARGS=(--title "$TAG" --notes-file "$(native_path "$NOTES")")
 [ "$PRERELEASE" = "1" ] && RELEASE_ARGS+=(--prerelease)
 gh_cmd release create "$TAG" "$(native_path "$XPI")" "${RELEASE_ARGS[@]}" \
   || die "the release could not be created. The code and tag are already pushed: run the same command again to retry only the release."

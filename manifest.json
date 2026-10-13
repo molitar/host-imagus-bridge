@@ -36,7 +36,7 @@
   },
   "browser_specific_settings": {
     "gecko": {
-      "id": "host-imagus-bridge-v2@local",
+      "id": "turboimagehost-imagus-bridge@local",
       "strict_min_version": "115.0",
       "data_collection_permissions": {
         "required": [
