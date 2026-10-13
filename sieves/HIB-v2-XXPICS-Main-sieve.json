@@ -1,0 +1,7 @@
+{
+  "_HIB_v2_XXPICS_Main": {
+    "link": "^xxpics\\.org/cover-rj\\d+/?(?:[?#].*)?$",
+    "to": ":\nconst n = this.node;\nconst a = n && n.closest ? n.closest('a[href]') : null;\nif (!a || a.dataset.hibV2XxPicsReady !== '1') return '';\nconst u = a.dataset.tihFullImage || '';\nif (!/^https?:\\/\\//i.test(u)) return '';\nconsole.log('[HIB-v2-Imagus-XXPICS] READY:', u);\nreturn u;",
+    "note": "HIB v2 XXPICS handoff. Reads only resolved HIB metadata."
+  }
+}

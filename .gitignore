@@ -1,0 +1,15 @@
+.DS_Store
+Thumbs.db
+*.pyc
+__pycache__/
+node_modules/
+
+# Built packages are attached to GitHub releases, never committed.
+*.xpi
+*.zip
+
+# Development leftovers.
+*.tmp
+*.bak
+*.backup-*
+*.part

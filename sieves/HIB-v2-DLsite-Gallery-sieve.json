@@ -1,0 +1,8 @@
+{
+  "_HIB_v2_DLsite_Gallery": {
+    "link": "^dlsite\\.com/maniax/work/=/product_id/(RJ\\d+)\\.html(?:[?#].*)?$",
+    "url": "data:,$&",
+    "res": ":\nconst n = this.node;\nconst a = n && n.closest ? n.closest('a[href]') : null;\nif (!a || a.dataset.hibV2Ready !== '1') return false;\nlet g;\ntry { g = JSON.parse(a.dataset.tihGallery || '[]'); } catch (e) { return false; }\nif (!Array.isArray(g) || !g.length) return false;\nconst v = g.filter(u => typeof u === 'string' && /^https:\\/\\/img\\.dlsite\\.jp\\//i.test(u));\nif (!v.length) return false;\nconsole.log('[HIB-v2-Imagus-Gallery] GALLERY READY:', v.length);\nreturn v.map(u => [u]);",
+    "note": "HIB v2 DLsite gallery. Reads only resolved HIB metadata."
+  }
+}

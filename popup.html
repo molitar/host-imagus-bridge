@@ -1,0 +1,260 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Host Imagus Bridge</title>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    body {
+      width: 370px;
+      margin: 0;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 15px;
+    }
+
+    .header img {
+      width: 112px;
+      height: 112px;
+      object-fit: contain;
+      flex: 0 0 112px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 19px;
+      line-height: 1.15;
+    }
+
+    .caption {
+      margin-top: 9px;
+      font-size: 11px;
+      opacity: .72;
+    }
+
+    #site {
+      margin-top: 3px;
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+
+    .state {
+      margin-top: 12px;
+      padding: 9px 10px;
+      border: 1px solid rgba(127,127,127,.35);
+      border-radius: 7px;
+      font-size: 13px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 9px;
+      padding: 9px 12px;
+      box-sizing: border-box;
+      border: 1px solid rgba(127,127,127,.45);
+      border-radius: 7px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: default;
+    }
+
+    .secondary {
+      background: transparent;
+    }
+
+    .note {
+      margin-top: 12px;
+      font-size: 11px;
+      line-height: 1.45;
+      opacity: .72;
+    }
+
+    #sitesView {
+      display: none;
+    }
+
+    .viewTitle {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 9px;
+    }
+
+    .siteEntry {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 7px 8px;
+      margin-top: 7px;
+      border: 1px solid rgba(127,127,127,.3);
+      border-radius: 7px;
+    }
+
+    .siteName {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+      font-size: 13px;
+    }
+
+    .removeSite {
+      width: auto;
+      margin: 0;
+      padding: 5px 9px;
+      font-size: 12px;
+    }
+
+    .addRow {
+      display: flex;
+      gap: 7px;
+      margin-top: 12px;
+    }
+
+    #manualSite {
+      flex: 1;
+      min-width: 0;
+      box-sizing: border-box;
+      padding: 8px 9px;
+      border: 1px solid rgba(127,127,127,.45);
+      border-radius: 7px;
+      font: inherit;
+    }
+
+    #manualAdd {
+      width: auto;
+      margin: 0;
+      padding: 8px 12px;
+    }
+
+    /* HIB-V273-SITE-MODE-STYLES */
+    #hibV273ManualMode,
+    .hibV273SiteMode {
+      font: inherit;
+      font-size: 12px;
+      padding: 7px 6px;
+      border: 1px solid rgba(127,127,127,.45);
+      border-radius: 7px;
+      background: Field;
+      color: FieldText;
+      max-width: 140px;
+      min-width: 0;
+    }
+
+    #sitesMessage {
+      min-height: 17px;
+      margin-top: 8px;
+      font-size: 12px;
+    }
+
+    #emptySites {
+      padding: 10px 0;
+      font-size: 13px;
+      opacity: .7;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <img src="icons/badge-128.png" alt="">
+    <h1>Host Imagus Bridge</h1>
+  </div>
+
+  <section id="mainView">
+    <div class="caption">Current source site</div>
+    <div id="site">Loading...</div>
+
+    <div id="state" class="state">
+      Checking HIB status...
+    </div>
+
+    <button id="toggle" disabled>
+      Loading...
+    </button>
+
+    <!-- HIB-V210-MEDIA-DISPLAY-SETTINGS -->
+    <div class="state" id="hibV210MediaSettings">
+      <strong>Media Display Size</strong>
+      <div class="note">Gallery is controlled by HIB. Video uses Imagus Reborn's player, so its preferred size is saved here but not forced onto another extension.</div>
+      <label for="hibV210GallerySize" style="display:block;margin-top:10px">Native gallery</label>
+      <select id="hibV210GallerySize" style="width:100%;margin-top:5px"></select>
+      <div id="hibV210GalleryCustom" style="display:none;margin-top:8px">
+        <label>Width <input id="hibV210GalleryWidth" type="number" min="160" max="7680" value="960" style="width:72px"></label>
+        <label style="margin-left:8px">Height <input id="hibV210GalleryHeight" type="number" min="90" max="4320" value="540" style="width:72px"></label>
+      </div>
+      <label for="hibV210VideoSize" style="display:block;margin-top:10px">Video preference (Imagus-managed)</label>
+      <select id="hibV210VideoSize" style="width:100%;margin-top:5px"></select>
+      <div id="hibV210VideoCustom" style="display:none;margin-top:8px">
+        <label>Width <input id="hibV210VideoWidth" type="number" min="160" max="7680" value="960" style="width:72px"></label>
+        <label style="margin-left:8px">Height <input id="hibV210VideoHeight" type="number" min="90" max="4320" value="540" style="width:72px"></label>
+      </div>
+      <div id="hibV210MediaStatus" style="font-size:11px;margin-top:8px;opacity:.85">Loading settings...</div>
+    </div>
+
+    <button id="sitesButton" class="secondary">
+      Sites
+    </button>
+
+    <div class="note">
+      HIB runs only on source sites you enable. Image hosts are resolved
+      automatically and do not need to be added.
+    </div>
+  </section>
+
+  <section id="sitesView">
+    <div class="viewTitle">Enabled Sites</div>
+
+    <div id="sitesList"></div>
+
+    <div class="addRow">
+      <input
+        id="manualSite"
+        type="text"
+        spellcheck="false"
+        placeholder="example.com"
+      >
+
+      <!-- HIB-V273-ADD-SITE-MEDIA-MODE -->
+      <select
+        id="hibV273ManualMode"
+        aria-label="Media mode for new website"
+        title="Media mode for new website"
+      >
+        <option value="automatic">Automatic</option>
+        <option value="video">Video Site</option>
+      </select>
+
+      <button id="manualAdd">
+        Add
+      </button>
+    </div>
+
+    <div id="sitesMessage"></div>
+
+    <button id="backButton" class="secondary">
+      Back
+    </button>
+
+    <div class="note">
+      Add source websites where HIB should monitor wrapped-image links.
+      Image-host destinations should not be added here.
+    </div>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

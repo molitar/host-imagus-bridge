@@ -1,0 +1,69 @@
+{
+  "manifest_version": 2,
+  "name": "Host Imagus Bridge",
+  "version": "2.1.0",
+  "description": "Media resolution bridge with Sieve-first Imagus integration and native DLsite gallery fallback.",
+  "permissions": [
+    "tabs",
+    "https://sukebei.nyaa.si/*",
+    "https://www.dlsite.com/*",
+    "https://xxpics.org/*",
+    "https://www.xxpics.org/*",
+    "https://ouo.io/*",
+    "https://www.ouo.io/*",
+    "https://www.turboimagehost.com/*",
+    "https://turboimagehost.com/*",
+    "https://*.turboimg.net/*",
+    "https://imagehost.website/*",
+    "https://*.imagehost.website/*",
+    "https://orangepix.is/*",
+    "https://*.orangepix.is/*",
+    "https://imgpv.com/*",
+    "https://*.imgpv.com/*",
+    "https://*.wp.com/*",
+    "https://*/*",
+    "http://*/*",
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "https://*.1hanime.com/*"
+  ],
+  "background": {
+    "scripts": [
+      "background.js"
+    ],
+    "persistent": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "host-imagus-bridge-v2@local",
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "icons": {
+    "16": "icons/badge-16.png",
+    "32": "icons/badge-32.png",
+    "48": "icons/badge-48.png",
+    "64": "icons/badge-64.png",
+    "96": "icons/badge-96.png",
+    "128": "icons/badge-128.png",
+    "256": "icons/badge-256.png"
+  },
+  "browser_action": {
+    "default_title": "Host Imagus Bridge",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/badge-16.png",
+      "32": "icons/badge-32.png",
+      "48": "icons/badge-48.png",
+      "64": "icons/badge-64.png",
+      "96": "icons/badge-96.png",
+      "128": "icons/badge-128.png"
+    }
+  }
+}
