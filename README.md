@@ -1,10 +1,8 @@
 # Host Imagus Bridge (HIB) v2.1.0
 
-| Preview Builds | Release Builds |
-|:---:|:---:|
-| [![Preview](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?include_prereleases&label=preview&color=orange)](https://github.com/molitar/host-imagus-bridge/releases) | [![Download](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?label=download&color=blue)](https://github.com/molitar/host-imagus-bridge/releases/latest) |
-
-[![License](https://img.shields.io/github/license/molitar/host-imagus-bridge?color=orange)](https://github.com/molitar/host-imagus-bridge/blob/main/LICENSE) [![Downloads](https://img.shields.io/github/downloads/molitar/host-imagus-bridge/total?color=green)](https://github.com/molitar/host-imagus-bridge/releases)
+| Preview Builds | Release Builds | License | Downloads |
+|:---:|:---:|:---:|:---:|
+| [![Preview](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?include_prereleases&label=preview&color=orange)](https://github.com/molitar/host-imagus-bridge/releases) | [![Download](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?label=download&color=blue)](https://github.com/molitar/host-imagus-bridge/releases/latest) | [![License](https://img.shields.io/github/license/molitar/host-imagus-bridge?color=orange)](https://github.com/molitar/host-imagus-bridge/blob/main/LICENSE) | [![Downloads](https://img.shields.io/github/downloads/molitar/host-imagus-bridge/total?color=green)](https://github.com/molitar/host-imagus-bridge/releases) |
 
 **A smarter media preview companion for Firefox and Imagus Reborn.**
 
