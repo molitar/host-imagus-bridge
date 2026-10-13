@@ -1,4 +1,4 @@
-# Host Imagus Bridge (HIB) v2.1.0
+# Host Imagus Bridge (HIB) v2.1.5
 
 | Preview Builds | Release Builds | License | Downloads |
 |:---:|:---:|:---:|:---:|
@@ -213,19 +213,33 @@ HIB is particularly useful for:
 
 ## Current project status
 
-**Version:** 2.1.0 release candidate  
+**Version:** 2.1.5  
 **Platform:** Firefox / compatible Firefox-based environments  
 **Integration:** Imagus Reborn companion  
 **Distribution:** Firefox `.xpi`  
-**Public Mozilla signing:** Pending
+**Public Mozilla signing:** Signed
 
 The previous v2.0.88 baseline was successfully tested on multiple DLsite pages, including Sieve-first operation and native gallery fallback with spinner dismissal.
 
 The v2.1.0 release candidate has passed source syntax and package-integrity checks. Full runtime regression testing is still required before treating it as a production release.
 
+## Screenshots
+
+**1. With the custom Imagus Reborn Sieve (`HIB_v2_DLsite_Gallery`).** The gallery opens in the normal Imagus Reborn popup and the arrow keys step through the images.
+
+![Gallery opened by the custom Imagus Reborn Sieve](screenshots/1-imagus-sieve-gallery.png)
+
+**2. Without the custom Sieve.** HIB falls back to its own built-in gallery, which pops up with previous/next buttons and an image counter. Its size can be changed in the HIB options.
+
+![HIB's built-in gallery fallback](screenshots/2-hib-native-gallery.png)
+
+**3. Gallery size.** Set a preset size or custom dimensions for HIB's gallery from the toolbar popup.
+
+![HIB popup with the gallery size options](screenshots/3-gallery-size-options.png)
+
 ## Installation
 
-Download the latest `.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page. Until Mozilla has signed a release, the file is an unsigned build: it installs in Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`, or it can be loaded temporarily from `about:debugging`. Imagus Reborn must be installed for HIB to have anything to complement.
+Download the latest `.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page. Releases marked "Pre-release" are unsigned builds waiting for Mozilla: they install in Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`, or can be loaded temporarily from `about:debugging`. Normal releases are signed by Mozilla and install in regular Firefox. Imagus Reborn must be installed for HIB to have anything to complement.
 
 ## Permissions
 

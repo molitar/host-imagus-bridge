@@ -43,7 +43,7 @@ browser.webRequest.onBeforeRequest.addListener(
       hibV266NetworkMedia.set(details.tabId, url.href);
 
       console.log(
-        "[HIB v2.0.66 NHPlayer] NETWORK MP4 CAPTURED:",
+        "[HIB v2.1.5 NHPlayer] NETWORK MP4 CAPTURED:",
         JSON.stringify({
           tabId: details.tabId,
           host: url.hostname,
@@ -191,7 +191,7 @@ async function hibV218Acquire() {
   }
 
   console.log(
-    "[HIB v2.0.18 owner] WAITING:",
+    "[HIB v2.1.5 owner] WAITING:",
     "queue=" +
       (hibV218Waiters.length + 1)
   );
@@ -216,7 +216,7 @@ function hibV218Release(reason) {
   }
 
   console.log(
-    "[HIB v2.0.18 owner] RELEASE:",
+    "[HIB v2.1.5 owner] RELEASE:",
     hibV218OwnedTabId,
     reason,
     "queue=" +
@@ -394,7 +394,7 @@ async function hibV270CreateNHPlayerPopup(safe) {
     }
 
     console.log(
-      "[HIB v2.0.71 NHPlayer] TAB MUTED:",
+      "[HIB v2.1.5 NHPlayer] TAB MUTED:",
       JSON.stringify({
         tabId: tab.id,
         muted: true
@@ -409,11 +409,11 @@ async function hibV270CreateNHPlayerPopup(safe) {
     });
 
     console.log(
-      "[HIB v2.0.71 NHPlayer] MUTED NAVIGATION STARTED"
+      "[HIB v2.1.5 NHPlayer] MUTED NAVIGATION STARTED"
     );
 
     console.log(
-      "[HIB v2.0.70 NHPlayer] POPUP CREATED:",
+      "[HIB v2.1.5 NHPlayer] POPUP CREATED:",
       JSON.stringify({
         tabId: tab.id,
         windowId: popup.id,
@@ -449,13 +449,13 @@ async function hibV270CreateNHPlayerPopup(safe) {
           );
 
           console.log(
-            "[HIB v2.0.70 NHPlayer] ORIGINAL WINDOW RESTORED"
+            "[HIB v2.1.5 NHPlayer] ORIGINAL WINDOW RESTORED"
           );
         }
       }
       catch (error) {
         console.warn(
-          "[HIB v2.0.70 NHPlayer] Focus restoration unavailable:",
+          "[HIB v2.1.5 NHPlayer] Focus restoration unavailable:",
           error && error.name
             ? error.name
             : "UnknownError"
@@ -571,7 +571,7 @@ async function hibV218CreateOwnedTab(
       try {
         await hibV218NativeRemove(previousDiagnosticId);
         console.log(
-          "[HIB v2.0.67 NHPlayer] Previous diagnostic tab closed:",
+          "[HIB v2.1.5 NHPlayer] Previous diagnostic tab closed:",
           previousDiagnosticId
         );
       }
@@ -581,13 +581,13 @@ async function hibV218CreateOwnedTab(
     }
 
     console.log(
-      "[HIB v2.0.18 owner] ACQUIRED:",
+      "[HIB v2.1.5 owner] ACQUIRED:",
       created.id,
       safe.url || ""
     );
 
     console.log(
-      "[HIB v2.0.21 owner] target host:",
+      "[HIB v2.1.5 owner] target host:",
       hibV221OwnedHost || "(none)"
     );
 
@@ -609,7 +609,7 @@ async function hibV218CreateOwnedTab(
             hibV218OwnedTabId;
 
           console.warn(
-            "[HIB v2.0.18 owner] WATCHDOG closing stale resolver:",
+            "[HIB v2.1.5 owner] WATCHDOG closing stale resolver:",
             staleId
           );
 
@@ -692,14 +692,14 @@ browser.tabs.onActivated.addListener(
       hibV221OwnedHost === "nhplayer.com"
     ) {
       console.log(
-        "[HIB v2.0.66 owner] NHPlayer tab selected for inspection:",
+        "[HIB v2.1.5 owner] NHPlayer tab selected for inspection:",
         activeInfo.tabId
       );
       return;
     }
 
     console.warn(
-      "[HIB v2.0.18 owner] resolver attempted focus:",
+      "[HIB v2.1.5 owner] resolver attempted focus:",
       activeInfo.tabId
     );
 
@@ -769,7 +769,7 @@ browser.tabs.onCreated.addListener(
       );
 
       console.warn(
-        "[HIB v2.0.18 owner] BLOCK CHILD:",
+        "[HIB v2.1.5 owner] BLOCK CHILD:",
         tab.id,
         "opener=" +
           tab.openerTabId,
@@ -812,7 +812,7 @@ browser.tabs.onCreated.addListener(
       );
 
       console.log(
-        "[HIB v2.0.21 owner] TRACK POSSIBLE NO-OPENER CHILD:",
+        "[HIB v2.1.5 owner] TRACK POSSIBLE NO-OPENER CHILD:",
         tab.id,
         tab.url || ""
       );
@@ -891,7 +891,7 @@ async function hibV221SweepNoOpenerOrphans() {
         ownedHost
     ) {
       console.log(
-        "[HIB v2.0.21 owner] KEEP unrelated no-opener tab:",
+        "[HIB v2.1.5 owner] KEEP unrelated no-opener tab:",
         tabId,
         host || tab.url || ""
       );
@@ -900,7 +900,7 @@ async function hibV221SweepNoOpenerOrphans() {
     }
 
     console.warn(
-      "[HIB v2.0.21 owner] CLOSE escaped no-opener resolver tab:",
+      "[HIB v2.1.5 owner] CLOSE escaped no-opener resolver tab:",
       tabId,
       host
     );
@@ -950,12 +950,12 @@ browser.tabs.onRemoved.addListener(
 );
 
 console.log(
-  "[HIB v2.0.18 owner] global one-tab resolver lock loaded"
+  "[HIB v2.1.5 owner] global one-tab resolver lock loaded"
 );
 "use strict";
 
 /*
- * Host Imagus Bridge v2.0.8
+ * Host Imagus Bridge v2.1.3
  *
  * Background resolver architecture:
  *
@@ -1513,7 +1513,7 @@ async function resolveDlsite(
     null;
 
   console.log(
-    "[HIB v2.0.8 background] DLsite polling started:",
+    "[HIB v2.1.5 background] DLsite polling started:",
     target.url
   );
 
@@ -1556,7 +1556,7 @@ async function resolveDlsite(
           );
 
           console.log(
-            "[HIB v2.0.8 background] DLsite adopted replacement tab:",
+            "[HIB v2.1.5 background] DLsite adopted replacement tab:",
             resolverTabId
           );
         }
@@ -1581,7 +1581,7 @@ async function resolveDlsite(
               : [];
 
           console.log(
-            "[HIB v2.0.8 background] DLsite poll:",
+            "[HIB v2.1.5 background] DLsite poll:",
             Math.floor(
               (
                 Date.now() -
@@ -1664,7 +1664,7 @@ async function resolveDlsite(
               );
 
               console.log(
-                "[HIB v2.0.8 background] DLsite ACTUAL PICTURES READY:",
+                "[HIB v2.1.5 background] DLsite ACTUAL PICTURES READY:",
                 gallery.length,
                 target.url
               );
@@ -1683,7 +1683,7 @@ async function resolveDlsite(
       }
       catch (error) {
         console.debug(
-          "[HIB v2.0.8 background] DLsite poll waiting:",
+          "[HIB v2.1.5 background] DLsite poll waiting:",
           String(error)
         );
       }
@@ -2139,7 +2139,7 @@ async function resolveXxPics(
     null;
 
   console.log(
-    "[HIB v2.0.8 background] XXPICS polling started:",
+    "[HIB v2.1.5 background] XXPICS polling started:",
     target.url
   );
 
@@ -2160,7 +2160,7 @@ async function resolveXxPics(
             info;
 
           console.log(
-            "[HIB v2.0.8 background] XXPICS poll:",
+            "[HIB v2.1.5 background] XXPICS poll:",
             Math.floor(
               (
                 Date.now() -
@@ -2220,7 +2220,7 @@ async function resolveXxPics(
               );
 
               console.log(
-                "[HIB v2.0.8 background] XXPICS ACTUAL PICTURE READY:",
+                "[HIB v2.1.5 background] XXPICS ACTUAL PICTURE READY:",
                 info.fullUrl
               );
 
@@ -2238,7 +2238,7 @@ async function resolveXxPics(
       }
       catch (error) {
         console.debug(
-          "[HIB v2.0.8 background] XXPICS poll waiting:",
+          "[HIB v2.1.5 background] XXPICS poll waiting:",
           String(error)
         );
       }
@@ -2388,7 +2388,7 @@ browser.runtime.onMessage.addListener(
 );
 
 console.log(
-  "[HIB v2.0.8 background] loaded"
+  "[HIB v2.1.5 background] loaded"
 );
 /*
  * HIB-V211-CHAIN-BACKGROUND
@@ -3282,7 +3282,7 @@ async function hibV210SurfaceResolverTab(
    * This function intentionally performs no activation or window focus.
    */
   console.log(
-    "[HIB v2.0.11 chain] resolver remains inactive:",
+    "[HIB v2.1.5 chain] resolver remains inactive:",
     tabId
   );
 }
@@ -3355,7 +3355,7 @@ async function hibV210ResolveChain(
     0;
 
   console.log(
-    "[HIB v2.0.11 chain] START:",
+    "[HIB v2.1.5 chain] START:",
     startUrl,
     "tab=" +
       tabId
@@ -3420,7 +3420,7 @@ async function hibV210ResolveChain(
         );
 
         console.log(
-          "[HIB v2.0.11 chain] READY from tab URL:",
+          "[HIB v2.1.5 chain] READY from tab URL:",
           tabUrl
         );
 
@@ -3458,7 +3458,7 @@ async function hibV210ResolveChain(
             )
           ) {
             console.log(
-              "[HIB v2.0.11 chain] revisited document:",
+              "[HIB v2.1.5 chain] revisited document:",
               documentUrl
             );
           }
@@ -3471,7 +3471,7 @@ async function hibV210ResolveChain(
               Date.now();
 
             console.log(
-              "[HIB v2.0.11 chain] HOP",
+              "[HIB v2.1.5 chain] HOP",
               visited.size,
               documentUrl
             );
@@ -3525,7 +3525,7 @@ async function hibV210ResolveChain(
           );
 
           console.log(
-            "[HIB v2.0.11 chain] ACTUAL PICTURE READY:",
+            "[HIB v2.1.5 chain] ACTUAL PICTURE READY:",
             result
           );
 
@@ -3560,7 +3560,7 @@ async function hibV210ResolveChain(
 
           if (next) {
             console.log(
-              "[HIB v2.0.11 chain] following supported outbound:",
+              "[HIB v2.1.5 chain] following supported outbound:",
               next.url
             );
 
@@ -3626,7 +3626,7 @@ async function hibV210ResolveChain(
               action.acted
             ) {
               console.log(
-                "[HIB v2.0.11 chain] OUO continuation:",
+                "[HIB v2.1.5 chain] OUO continuation:",
                 action
               );
 
@@ -3636,7 +3636,7 @@ async function hibV210ResolveChain(
           }
           catch (error) {
             console.debug(
-              "[HIB v2.0.11 chain] OUO continuation not ready:",
+              "[HIB v2.1.5 chain] OUO continuation not ready:",
               String(error)
             );
           }
@@ -3689,7 +3689,7 @@ async function hibV210ResolveChain(
           true;
 
         console.log(
-          "[HIB v2.0.11 chain] TurboImageHost stalled; surfacing resolver tab"
+          "[HIB v2.1.5 chain] TurboImageHost stalled; surfacing resolver tab"
         );
 
         await hibV210SurfaceResolverTab(
@@ -3713,7 +3713,7 @@ async function hibV210ResolveChain(
       );
 
       console.log(
-        "[HIB v2.0.11 chain] resolver tab closed:",
+        "[HIB v2.1.5 chain] resolver tab closed:",
         tabId
       );
     }
@@ -3783,7 +3783,7 @@ browser.runtime.onMessage.addListener(
 );
 
 console.log(
-  "[HIB v2.0.11 chain] isolated OUO resolver loaded"
+  "[HIB v2.1.5 chain] isolated OUO resolver loaded"
 );
 /*
  * HIB-V212-IMGPV-BACKGROUND
@@ -4139,7 +4139,7 @@ async function hibV212ResolveImgPv(
     null;
 
   console.log(
-    "[HIB v2.0.12 ImgPV background] polling started:",
+    "[HIB v2.1.5 ImgPV background] polling started:",
     target
   );
 
@@ -4162,7 +4162,7 @@ async function hibV212ResolveImgPv(
             info;
 
           console.log(
-            "[HIB v2.0.12 ImgPV background] poll:",
+            "[HIB v2.1.5 ImgPV background] poll:",
             poll,
             info.fullUrl ||
               "waiting"
@@ -4197,7 +4197,7 @@ async function hibV212ResolveImgPv(
             );
 
             console.log(
-              "[HIB v2.0.12 ImgPV background] CGI READY:",
+              "[HIB v2.1.5 ImgPV background] CGI READY:",
               info.fullUrl
             );
 
@@ -4207,7 +4207,7 @@ async function hibV212ResolveImgPv(
       }
       catch (error) {
         console.debug(
-          "[HIB v2.0.12 ImgPV background] waiting:",
+          "[HIB v2.1.5 ImgPV background] waiting:",
           String(error)
         );
       }
@@ -4296,7 +4296,7 @@ browser.runtime.onMessage.addListener(
 );
 
 console.log(
-  "[HIB v2.0.12 ImgPV background] isolated resolver loaded"
+  "[HIB v2.1.5 ImgPV background] isolated resolver loaded"
 );
 /*
  * HIB-V213-GENERIC-BACKGROUND
@@ -4401,7 +4401,7 @@ function hibV250Log(original, label, details) {
   }
 
   console.log(
-    "[HIB v2.0.50 NHPlayer] " + label,
+    "[HIB v2.1.5 NHPlayer] " + label,
     details
   );
 }
@@ -4692,7 +4692,7 @@ async function hibV213InspectGenericTab(
                   hibV256Selector.dispatchEvent(event);
 
                   console.log(
-                    "[HIB v2.0.56 NHPlayer] CLICK:",
+                    "[HIB v2.1.5 NHPlayer] CLICK:",
                     JSON.stringify({
                       number: number,
                       trusted: event.isTrusted,
@@ -4708,12 +4708,12 @@ async function hibV213InspectGenericTab(
 
                 if (!hibV256Selector) {
                   console.warn(
-                    "[HIB v2.0.56 NHPlayer] SELECTOR MISSING"
+                    "[HIB v2.1.5 NHPlayer] SELECTOR MISSING"
                   );
                 }
                 else if (hibV256PlayerStarted()) {
                   console.log(
-                    "[HIB v2.0.56 NHPlayer] PLAYER ALREADY STARTED"
+                    "[HIB v2.1.5 NHPlayer] PLAYER ALREADY STARTED"
                   );
                 }
                 else {
@@ -4726,7 +4726,7 @@ async function hibV213InspectGenericTab(
                         hibV256PlayerStarted()
                       ) {
                         console.log(
-                          "[HIB v2.0.56 NHPlayer] SECOND CLICK SKIPPED: player already started"
+                          "[HIB v2.1.5 NHPlayer] SECOND CLICK SKIPPED: player already started"
                         );
                         return;
                       }
@@ -4735,7 +4735,7 @@ async function hibV213InspectGenericTab(
 
                       setTimeout(() => {
                         console.log(
-                          "[HIB v2.0.56 NHPlayer] FINAL STATE:",
+                          "[HIB v2.1.5 NHPlayer] FINAL STATE:",
                           JSON.stringify({
                             playerStarted:
                               hibV256PlayerStarted(),
@@ -4749,7 +4749,7 @@ async function hibV213InspectGenericTab(
                     }
                     catch (error) {
                       console.warn(
-                        "[HIB v2.0.56 NHPlayer] RETRY ERROR:",
+                        "[HIB v2.1.5 NHPlayer] RETRY ERROR:",
                         String(error)
                       );
                     }
@@ -4758,14 +4758,14 @@ async function hibV213InspectGenericTab(
               }
               catch (error) {
                 console.warn(
-                  "[HIB v2.0.56 NHPlayer] INIT ERROR:",
+                  "[HIB v2.1.5 NHPlayer] INIT ERROR:",
                   String(error)
                 );
               }
             }
             else {
               console.warn(
-                "[HIB v2.0.56 NHPlayer] PAGE CONTEXT UNAVAILABLE"
+                "[HIB v2.1.5 NHPlayer] PAGE CONTEXT UNAVAILABLE"
               );
             }
           }
@@ -4818,7 +4818,7 @@ async function hibV213InspectGenericTab(
     }
     catch (error) {
       console.log(
-        "[HIB v2.0.51 NHPlayer] INITIALIZATION ERROR:",
+        "[HIB v2.1.5 NHPlayer] INITIALIZATION ERROR:",
         error && error.name ? error.name : "Error"
       );
     }
@@ -5146,7 +5146,7 @@ async function hibV213InspectGenericTab(
          *
          * Do not promote that MP4 into the media candidate list.
          *
-         * The existing v2.0.47 outbound resolver will instead follow
+         * The existing v2.1.3 outbound resolver will instead follow
          * the data-id player.php wrapper using its one owned tab.
          *
          * player.php initializes JWPlayer and exposes the authorized
@@ -5791,7 +5791,7 @@ async function hibV213InspectGenericTab(
         hibV259Signature;
 
       console.log(
-        "[HIB v2.0.59 NHPlayer] FRAME STATE:",
+        "[HIB v2.1.5 NHPlayer] FRAME STATE:",
         hibV259Signature
       );
     }
@@ -5802,7 +5802,7 @@ async function hibV213InspectGenericTab(
       );
 
       console.log(
-        "[HIB v2.0.59 NHPlayer] VERIFIED FRAME MEDIA:",
+        "[HIB v2.1.5 NHPlayer] VERIFIED FRAME MEDIA:",
         JSON.stringify({
           frame: "/player.php",
           host: hibV259URL.hostname,
@@ -5845,7 +5845,7 @@ async function hibV213InspectGenericTab(
       }
 
       console.log(
-        "[HIB v2.0.77 NHPlayer] SELECTED FRAME SUBTITLE:",
+        "[HIB v2.1.5 NHPlayer] SELECTED FRAME SUBTITLE:",
         JSON.stringify({
           found: !!hibV259Selected.subtitleURL,
           format: hibV259Selected.subtitleURL
@@ -5862,7 +5862,7 @@ async function hibV213InspectGenericTab(
    * HIB-V260-NHPLAYER-DIRECT-MEDIA
    *
    * NHPlayer-only direct iframe fallback.
-   * Preserve v2.0.59 generic result selection.
+   * Preserve v2.1.3 generic result selection.
    * Never activate, focus, or play media.
    */
   if (hibV258IsNH) {
@@ -5919,7 +5919,7 @@ async function hibV213InspectGenericTab(
             video.setAttribute("autoplay", "");
 
             console.log(
-              "[HIB v2.0.68 NHPlayer] SILENT PLAY REQUEST:",
+              "[HIB v2.1.5 NHPlayer] SILENT PLAY REQUEST:",
               JSON.stringify({
                 visibility: document.visibilityState,
                 focused: document.hasFocus(),
@@ -5943,7 +5943,7 @@ async function hibV213InspectGenericTab(
                   );
 
                   console.log(
-                    "[HIB v2.0.68 NHPlayer] SILENT PLAY ACCEPTED:",
+                    "[HIB v2.1.5 NHPlayer] SILENT PLAY ACCEPTED:",
                     JSON.stringify({
                       visibility: document.visibilityState,
                       focused: document.hasFocus(),
@@ -5961,7 +5961,7 @@ async function hibV213InspectGenericTab(
                   );
 
                   console.warn(
-                    "[HIB v2.0.68 NHPlayer] SILENT PLAY REJECTED:",
+                    "[HIB v2.1.5 NHPlayer] SILENT PLAY REJECTED:",
                     JSON.stringify({
                       name: error && error.name
                         ? error.name
@@ -5984,7 +5984,7 @@ async function hibV213InspectGenericTab(
             );
 
             console.warn(
-              "[HIB v2.0.68 NHPlayer] SILENT PLAY EXCEPTION:",
+              "[HIB v2.1.5 NHPlayer] SILENT PLAY EXCEPTION:",
               String(error).slice(0, 180)
             );
           }
@@ -6111,7 +6111,7 @@ async function hibV213InspectGenericTab(
           hibV260Signature;
 
         console.log(
-          "[HIB v2.0.60 NHPlayer] DIRECT PROBE:",
+          "[HIB v2.1.5 NHPlayer] DIRECT PROBE:",
           hibV260Signature
         );
       }
@@ -6133,7 +6133,7 @@ async function hibV213InspectGenericTab(
           };
 
           console.log(
-            "[HIB v2.0.60 NHPlayer] DIRECT MEDIA FOUND:",
+            "[HIB v2.1.5 NHPlayer] DIRECT MEDIA FOUND:",
             JSON.stringify({
               host: hibV260URL.hostname,
               path: hibV260URL.pathname,
@@ -6159,7 +6159,7 @@ async function hibV213InspectGenericTab(
     }
     catch (error) {
       console.warn(
-        "[HIB v2.0.60 NHPlayer] DIRECT PROBE ERROR:",
+        "[HIB v2.1.5 NHPlayer] DIRECT PROBE ERROR:",
         String(error)
       );
     }
@@ -6294,12 +6294,12 @@ async function hibV213ResolveGeneric(
     }
     catch (error) {
       console.warn(
-        "[HIB v2.0.65 NHPlayer] Settings unavailable; using 30s."
+        "[HIB v2.1.5 NHPlayer] Settings unavailable; using 30s."
       );
     }
 
     console.log(
-      "[HIB v2.0.65 NHPlayer] TIMEOUT CONFIG:",
+      "[HIB v2.1.5 NHPlayer] TIMEOUT CONFIG:",
       JSON.stringify({
         seconds: hibV265NHTimeoutMs / 1000,
         keepFailedTab: true
@@ -6307,7 +6307,7 @@ async function hibV213ResolveGeneric(
     );
   }
   console.log(
-    "[HIB v2.0.13 generic background] START:",
+    "[HIB v2.1.5 generic background] START:",
     original
   );
 
@@ -6445,7 +6445,7 @@ async function hibV213ResolveGeneric(
               };
 
               console.log(
-                "[HIB v2.0.66 NHPlayer] NETWORK FALLBACK READY:",
+                "[HIB v2.1.5 NHPlayer] NETWORK FALLBACK READY:",
                 JSON.stringify({
                   host: media.hostname,
                   path: media.pathname,
@@ -6510,7 +6510,7 @@ async function hibV213ResolveGeneric(
             );
 
             console.log(
-              "[HIB v2.0.13 generic background] HOP",
+              "[HIB v2.1.5 generic background] HOP",
               visited.size,
               current
             );
@@ -6548,7 +6548,7 @@ async function hibV213ResolveGeneric(
           }
 
           console.log(
-            "[HIB v2.0.13 generic background] candidate:",
+            "[HIB v2.1.5 generic background] candidate:",
             info.best.score,
             info.best.url,
             "stable=" +
@@ -6611,7 +6611,7 @@ async function hibV213ResolveGeneric(
             }
             else {
               console.log(
-                "[HIB v2.0.23 generic background] STRONG MEDIA READY:",
+                "[HIB v2.1.5 generic background] STRONG MEDIA READY:",
                 result
               );
             }
@@ -6672,7 +6672,7 @@ async function hibV213ResolveGeneric(
             poll % 5 === 0
           ) {
             console.log(
-              "[HIB v2.0.24 generic background] SANKAKU POST HOLD - waiting for requested post media:",
+              "[HIB v2.1.5 generic background] SANKAKU POST HOLD - waiting for requested post media:",
               info &&
               info.href
                 ? info.href
@@ -6735,7 +6735,7 @@ async function hibV213ResolveGeneric(
             }
             else {
               console.log(
-                "[HIB v2.0.47 generic background] following wrapper outbound:",
+                "[HIB v2.1.5 generic background] following wrapper outbound:",
                 next.score,
                 next.url
               );
@@ -6796,7 +6796,7 @@ async function hibV213ResolveGeneric(
      */
     if (hibV250IsNH(original)) {
       console.warn(
-        "[HIB v2.0.65 NHPlayer] TIMEOUT METRICS:",
+        "[HIB v2.1.5 NHPlayer] TIMEOUT METRICS:",
         JSON.stringify({
           elapsedSeconds: +((Date.now() - started) / 1000).toFixed(2),
           configuredSeconds: hibV265NHTimeoutMs / 1000,
@@ -6821,7 +6821,7 @@ async function hibV213ResolveGeneric(
         hibV267LastDiagnosticTabId = tabId;
 
         console.log(
-          "[HIB v2.0.67 NHPlayer] DIAGNOSTIC TAB RETAINED:",
+          "[HIB v2.1.5 NHPlayer] DIAGNOSTIC TAB RETAINED:",
           JSON.stringify({
             tabId: tabId,
             reason: hibV252RetainOnTimeout
@@ -6839,7 +6839,7 @@ async function hibV213ResolveGeneric(
        * Only the timed-out NHPlayer tab is preserved.
        */
       console.warn(
-        "[HIB v2.0.52 NHPlayer] RETAINED TAB FOR INSPECTION:",
+        "[HIB v2.1.5 NHPlayer] RETAINED TAB FOR INSPECTION:",
         tabId,
         "Wait for owner RELEASE before selecting"
       );
@@ -6861,7 +6861,7 @@ async function hibV213ResolveGeneric(
         );
 
         console.warn(
-          "[HIB v2.0.53 NHPlayer] DETACHED:",
+          "[HIB v2.1.5 NHPlayer] DETACHED:",
           tabId,
           "Safe to inspect manually"
         );
@@ -6938,7 +6938,7 @@ browser.runtime.onMessage.addListener(
 );
 
 console.log(
-  "[HIB v2.0.13 generic background] fallback resolver loaded"
+  "[HIB v2.1.5 generic background] fallback resolver loaded"
 );
 /*
  * HIB-V216-SITE-MANAGER
@@ -6978,8 +6978,8 @@ async function hibV216ReadSites() {
 
   /*
    * Upgrade migration:
-   * v2.0.15 was a Sukebei-specific installation, so retain Sukebei
-   * automatically the first time v2.0.16 starts.
+   * v2.1.3 was a Sukebei-specific installation, so retain Sukebei
+   * automatically the first time v2.1.3 starts.
    */
   if (
     !Object.prototype.hasOwnProperty.call(
@@ -7117,7 +7117,7 @@ async function hibV216RegisterSite(site) {
   );
 
   console.log(
-    "[HIB v2.0.16 sites] registered:",
+    "[HIB v2.1.5 sites] registered:",
     clean
   );
 }
@@ -7151,7 +7151,7 @@ async function hibV216UnregisterSite(site) {
   }
 
   console.log(
-    "[HIB v2.0.16 sites] unregistered:",
+    "[HIB v2.1.5 sites] unregistered:",
     clean
   );
 }
@@ -7190,7 +7190,7 @@ async function hibV216SyncSites() {
   }
 
   console.log(
-    "[HIB v2.0.16 sites] enabled source sites:",
+    "[HIB v2.1.5 sites] enabled source sites:",
     sites
   );
 
@@ -7563,7 +7563,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
           .split('.').pop().toLowerCase();
 
         console.log(
-          '[HIB v2.0.79 NHPlayer] SUBTITLE FETCH:',
+          '[HIB v2.1.5 NHPlayer] SUBTITLE FETCH:',
           JSON.stringify({
             success: true,
             format: format,
@@ -7581,7 +7581,7 @@ browser.runtime.onMessage.addListener((message, sender) => {
       }
     } catch (error) {
       console.warn(
-        '[HIB v2.0.79 NHPlayer] SUBTITLE FETCH FAILED:',
+        '[HIB v2.1.5 NHPlayer] SUBTITLE FETCH FAILED:',
         String(error)
       );
 
@@ -7595,11 +7595,11 @@ browser.runtime.onMessage.addListener((message, sender) => {
 hibV216SyncSites()
   .catch(error => {
     console.error(
-      "[HIB v2.0.16 sites] startup sync failed:",
+      "[HIB v2.1.5 sites] startup sync failed:",
       error
     );
   });
 
 console.log(
-  "[HIB v2.0.16 sites] site manager loaded"
+  "[HIB v2.1.5 sites] site manager loaded"
 );

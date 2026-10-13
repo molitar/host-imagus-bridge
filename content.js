@@ -1,7 +1,7 @@
 "use strict";
 
 /*
- * Host Imagus Bridge v2.0.8
+ * Host Imagus Bridge v2.1.3
  *
  * Interaction model:
  *
@@ -28,7 +28,7 @@
     true;
 
   const VERSION =
-    "2.0.16-site-allowlist";
+    "2.1.2";
 
   const states =
     new Map();
@@ -374,7 +374,7 @@
     try {
       urls = JSON.parse(anchor.dataset.tihGallery || "[]");
     } catch (error) {
-      console.warn("[HIB v2.0.85] Invalid DLsite gallery", error);
+      console.warn("[HIB v2.1.5] Invalid DLsite gallery", error);
       return;
     }
 
@@ -422,12 +422,18 @@
     const image = document.createElement("img");
     const [hibV210Width,hibV210Height] = hibV210ImageLimits();
 
+    // Explicit presets set the viewer dimensions. Automatic fills the
+    // available viewport while object-fit keeps the actual image undistorted.
+    const hibGalleryAuto = (hibV210GallerySize?.preset || "auto") === "auto";
+    // Navigation controls now overlay the image, so Automatic only needs
+    // a narrow viewport margin rather than reserving 57px on each side.
+    if (hibGalleryAuto) frame.style.maxWidth = "calc(100vw - 24px)";
     Object.assign(image.style, {
       display: "block",
-      width: "auto",
-      height: "auto",
-      maxWidth: `min(${hibV210Width}px, calc(100vw - 132px))`,
-      maxHeight: `min(${hibV210Height}px, calc(100vh - 130px))`,
+      width: hibGalleryAuto ? "calc(100vw - 24px)" : `min(${hibV210Width}px, calc(100vw - 132px))`,
+      height: hibGalleryAuto ? "calc(100vh - 130px)" : `min(${hibV210Height}px, calc(100vh - 130px))`,
+      maxWidth: hibGalleryAuto ? "calc(100vw - 24px)" : `min(${hibV210Width}px, calc(100vw - 132px))`,
+      maxHeight: hibGalleryAuto ? "calc(100vh - 130px)" : `min(${hibV210Height}px, calc(100vh - 130px))`,
       objectFit: "contain",
       border: "3px solid #333",
       borderRadius: "6px",
@@ -467,8 +473,22 @@
         font: "22px Arial, sans-serif",
         cursor: "pointer",
         pointerEvents: "auto",
+        zIndex: "3",
         ...styles
       });
+
+      if (label === "❮" || label === "❯") {
+        button.style.background = "rgba(20, 20, 20, 0.42)";
+        button.style.borderColor = "rgba(255,255,255,0.25)";
+        button.style.transition = "background 140ms ease";
+        button.setAttribute("aria-label", label === "❮" ? "Previous image" : "Next image");
+        button.addEventListener("mouseenter", () => {
+          button.style.background = "rgba(20, 20, 20, 0.78)";
+        });
+        button.addEventListener("mouseleave", () => {
+          button.style.background = "rgba(20, 20, 20, 0.42)";
+        });
+      }
 
       button.addEventListener("click", event => {
         event.preventDefault();
@@ -524,13 +544,13 @@
     overlay.hibCloseGallery = close;
 
     makeButton("❮", {
-      left: "-57px",
+      left: "12px",
       top: "50%",
       transform: "translateY(-50%)"
     }, () => move(-1));
 
     makeButton("❯", {
-      right: "-57px",
+      right: "12px",
       top: "50%",
       transform: "translateY(-50%)"
     }, () => move(1));
@@ -549,14 +569,14 @@
 
     image.addEventListener("error", () => {
       console.warn(
-        "[HIB v2.0.85] Image load failed:",
+        "[HIB v2.1.5] Image load failed:",
         urls[index]
       );
     });
 
     render();
 
-    console.log("[HIB v2.0.85] Native gallery opened", {
+    console.log("[HIB v2.1.5] Native gallery opened", {
       images: urls.length,
       productId: anchor.dataset.hibV2ProductId
     });
@@ -640,7 +660,7 @@
         saved.element.style.removeProperty("display");
       }
     } catch (error) {
-      console.warn("[HIB v2.0.88 DLsite] Loader restoration failed:", error);
+      console.warn("[HIB v2.1.5 DLsite] Loader restoration failed:", error);
     }
   }
 
@@ -661,7 +681,7 @@
       priority: loader.style.getPropertyPriority("display")
     };
     loader.style.setProperty("display", "none", "important");
-    console.log("[HIB v2.0.88 DLsite] Dismissed current gray Imagus loader");
+    console.log("[HIB v2.1.5 DLsite] Dismissed current gray Imagus loader");
     return true;
   }
 
@@ -675,7 +695,7 @@
     if (document.getElementById("hib-v285-native-gallery")) {
       hibV288DismissGrayLoader();
     }
-    console.log("[HIB v2.0.87 DLsite] Imagus R_js fallback gallery:", {
+    console.log("[HIB v2.1.5 DLsite] Imagus R_js fallback gallery:", {
       productId: attempt.productId, trigger: attempt.trigger
     });
   }
@@ -716,7 +736,7 @@
         clearInterval(attempt.timer);
         attempt.timer = null;
         hibV287TryOpen(attempt);
-        console.log("[HIB v2.0.87 DLsite] Fresh Imagus gray failure:",
+        console.log("[HIB v2.1.5 DLsite] Fresh Imagus gray failure:",
           target.productId);
         return;
       }
@@ -815,7 +835,7 @@
           hibV284OriginalHref;
 
         console.log(
-          '[HIB v2.0.84 DLsite] GALLERY URL TRANSITION:',
+          '[HIB v2.1.5 DLsite] GALLERY URL TRANSITION:',
           JSON.stringify({
             productId: target.productId,
             galleryCount: gallery.length,
@@ -844,7 +864,7 @@
     );
 
     console.log(
-      "[HIB v2.0.13] DLsite ACTUAL PICTURES READY:",
+      "[HIB v2.1.5] DLsite ACTUAL PICTURES READY:",
       {
         productId:
           target.productId,
@@ -941,7 +961,7 @@
     );
 
     console.log(
-      "[HIB v2.0.13] XXPICS ACTUAL PICTURE READY:",
+      "[HIB v2.1.5] XXPICS ACTUAL PICTURE READY:",
       {
         productId:
           target.productId,
@@ -1021,7 +1041,7 @@
             );
 
             console.log(
-              "[HIB v2.0.13] Imagus re-check requested:",
+              "[HIB v2.1.5] Imagus re-check requested:",
               target.url
             );
           }
@@ -1065,7 +1085,7 @@
             1;
 
           console.log(
-            "[HIB v2.0.13] waiting for actual pictures:",
+            "[HIB v2.1.5] waiting for actual pictures:",
             state.target.key,
             "poll=" +
               state.waitPoll,
@@ -1132,7 +1152,7 @@
     );
 
     console.log(
-      "[HIB v2.0.13] IMMEDIATE INTERACTION -> resolver:",
+      "[HIB v2.1.5] IMMEDIATE INTERACTION -> resolver:",
       trigger,
       target.url
     );
@@ -1176,7 +1196,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.13] resolver message failed; original link untouched:",
+        "[HIB v2.1.5] resolver message failed; original link untouched:",
         target.url,
         String(error)
       );
@@ -1208,7 +1228,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.13] resolver failed; original link untouched:",
+        "[HIB v2.1.5] resolver failed; original link untouched:",
         target.url,
         result && result.error
           ? result.error
@@ -1252,7 +1272,7 @@
         );
 
         console.warn(
-          "[HIB v2.0.13] DLsite returned without actual pictures:",
+          "[HIB v2.1.5] DLsite returned without actual pictures:",
           target.url
         );
 
@@ -1277,7 +1297,7 @@
         );
 
         console.warn(
-          "[HIB v2.0.13] XXPICS returned without an actual picture:",
+          "[HIB v2.1.5] XXPICS returned without an actual picture:",
           target.url
         );
 
@@ -1364,7 +1384,7 @@
   );
 
   console.log(
-    "[HIB v2.0.13] loaded",
+    "[HIB v2.1.5] loaded",
     VERSION,
     location.href
   );
@@ -1563,7 +1583,7 @@
     );
 
     console.log(
-      "[HIB v2.0.13 chain] IMMEDIATE INTERACTION -> OUO:",
+      "[HIB v2.1.5 chain] IMMEDIATE INTERACTION -> OUO:",
       trigger,
       target.url
     );
@@ -1590,7 +1610,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.13 chain] message failed; original OUO link untouched:",
+        "[HIB v2.1.5 chain] message failed; original OUO link untouched:",
         String(error)
       );
 
@@ -1611,7 +1631,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.13 chain] resolution failed; original OUO link untouched:",
+        "[HIB v2.1.5 chain] resolution failed; original OUO link untouched:",
         result && result.error
           ? result.error
           : "unknown error"
@@ -1710,7 +1730,7 @@
     );
 
     console.log(
-      "[HIB v2.0.13 chain] ACTUAL PICTURE READY:",
+      "[HIB v2.1.5 chain] ACTUAL PICTURE READY:",
       {
         originalUrl:
           target.url,
@@ -1800,7 +1820,7 @@
   );
 
   console.log(
-    "[HIB v2.0.13 chain] OUO hover handler loaded"
+    "[HIB v2.1.5 chain] OUO hover handler loaded"
   );
 })();
 /*
@@ -2343,7 +2363,7 @@
     );
 
     console.log(
-      "[HIB v2.0.12 ImgPV] IMMEDIATE INTERACTION:",
+      "[HIB v2.1.5 ImgPV] IMMEDIATE INTERACTION:",
       trigger,
       target.url
     );
@@ -2370,7 +2390,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.12 ImgPV] resolver message failed:",
+        "[HIB v2.1.5 ImgPV] resolver message failed:",
         String(error)
       );
 
@@ -2391,7 +2411,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.12 ImgPV] resolver failed; original link untouched:",
+        "[HIB v2.1.5 ImgPV] resolver failed; original link untouched:",
         result && result.error
           ? result.error
           : "unknown error"
@@ -2416,7 +2436,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.12 ImgPV] invalid CGI result:",
+        "[HIB v2.1.5 ImgPV] invalid CGI result:",
         result.fullUrl
       );
 
@@ -2424,7 +2444,7 @@
     }
 
     console.log(
-      "[HIB v2.0.12 ImgPV] VERIFYING:",
+      "[HIB v2.1.5 ImgPV] VERIFYING:",
       proxyUrl
     );
 
@@ -2447,7 +2467,7 @@
       );
 
       console.warn(
-        "[HIB v2.0.12 ImgPV] proxy verification failed:",
+        "[HIB v2.1.5 ImgPV] proxy verification failed:",
         proxyUrl,
         verification
       );
@@ -2456,7 +2476,7 @@
     }
 
     console.log(
-      "[HIB v2.0.12 ImgPV] VERIFIED:",
+      "[HIB v2.1.5 ImgPV] VERIFIED:",
       verification.width +
       "x" +
       verification.height
@@ -2577,7 +2597,7 @@
     );
 
     console.log(
-      "[HIB v2.0.12 ImgPV] ACTUAL PICTURE READY:",
+      "[HIB v2.1.5 ImgPV] ACTUAL PICTURE READY:",
       {
         originalUrl:
           target.url,
@@ -2667,7 +2687,7 @@
   );
 
   console.log(
-    "[HIB v2.0.12 ImgPV] isolated handler loaded"
+    "[HIB v2.1.5 ImgPV] isolated handler loaded"
   );
 })();
 /*
@@ -2720,7 +2740,7 @@
     !hibV216GenericPageAllowed
   ) {
     console.log(
-      "[HIB v2.0.16 generic] disabled on Sukebei non-detail page:",
+      "[HIB v2.1.5 generic] disabled on Sukebei non-detail page:",
       location.pathname +
         location.search
     );
@@ -3248,7 +3268,7 @@
    * HIB-V236-SANKAKU-NO-DASH
    *
    * Sankaku now relies entirely on Imagus loader-state feedback and the
-   * resolved-link handoff. Do not apply the v2.0.31 dashed-ready decoration
+   * resolved-link handoff. Do not apply the v2.1.3 dashed-ready decoration
    * on Sankaku because it causes unnecessary layout movement.
    *
    * The resolved-state metadata and unlock behavior remain intact.
@@ -3288,7 +3308,7 @@
       "1";
 
     /*
-     * Keep the original v2.0.31 ready metadata, but suppress the visual dash
+     * Keep the original v2.1.3 ready metadata, but suppress the visual dash
      * on Sankaku only.
      */
     if (
@@ -3334,8 +3354,8 @@
     hibV233IsSankakuPostUrl(
       originalUrl
     )
-      ? "[HIB v2.0.36 generic] RESOLVED - NO DASH / READY:"
-      : "[HIB v2.0.31 generic] RESOLVED - SPINNER REMOVED / DASHED READY:",
+      ? "[HIB v2.1.5 generic] RESOLVED - NO DASH / READY:"
+      : "[HIB v2.1.5 generic] RESOLVED - SPINNER REMOVED / DASHED READY:",
     {
       originalUrl,
       fullUrl,
@@ -3384,7 +3404,7 @@
     event.stopImmediatePropagation();
 
     console.log(
-      "[HIB v2.0.28 generic] BLOCKED WHILE RESOLVING:",
+      "[HIB v2.1.5 generic] BLOCKED WHILE RESOLVING:",
       event.type,
       anchor.dataset.tihOriginalHref ||
         anchor.href
@@ -3409,7 +3429,7 @@
   /*
    * HIB-V243-LEFT-MIDDLE-NATIVE
    *
-   * Preserve the known-working v2.0.37 Sankaku resolver exactly as-is.
+   * Preserve the known-working v2.1.3 Sankaku resolver exactly as-is.
    *
    * After HIB has resolved a tile, href may point to the resolved media URL
    * because that is required by the working Imagus/right-click handoff.
@@ -3418,7 +3438,7 @@
    *
    *   left button   -> original Sankaku post URL
    *   middle button -> original Sankaku post URL
-   *   right button  -> untouched v2.0.37 HIB/media behavior
+   *   right button  -> untouched v2.1.3 HIB/media behavior
    *
    * No HIB resolver code is invoked here.
    * No right-click/contextmenu event is handled here.
@@ -3506,8 +3526,8 @@
 
     console.log(
       isLeft
-        ? "[HIB v2.0.43] LEFT -> original Sankaku post:"
-        : "[HIB v2.0.43] MIDDLE -> original Sankaku post:",
+        ? "[HIB v2.1.5] LEFT -> original Sankaku post:"
+        : "[HIB v2.1.5] MIDDLE -> original Sankaku post:",
       originalUrl
     );
 
@@ -3584,7 +3604,7 @@
   /*
    * HIB-V226-GENERIC-MEDIA-SCOPE
    *
-   * v2.0.23 originally placed its media verification helpers inside a
+   * v2.1.3 originally placed its media verification helpers inside a
    * different isolated handler IIFE. The generic fallback therefore
    * raised ReferenceError at runtime even though node --check passed.
    *
@@ -4149,7 +4169,7 @@
       );
 
       console.log(
-        "[HIB v2.0.29 generic] NATIVE MEDIA VISIBLE:",
+        "[HIB v2.1.5 generic] NATIVE MEDIA VISIBLE:",
         originalUrl
       );
 
@@ -4172,7 +4192,7 @@
       );
 
       console.log(
-        "[HIB v2.0.29 generic] NATIVE MEDIA CHANGED - resolver not needed:",
+        "[HIB v2.1.5 generic] NATIVE MEDIA CHANGED - resolver not needed:",
         originalUrl
       );
 
@@ -4223,12 +4243,12 @@
    * Sankaku native handling is identified by Imagus Reborn placing
    * cursor: crosshair on the live post anchor.
    *
-   * Unlike v2.0.32, an already-present signal is valid. This matters when
+   * Unlike v2.1.3, an already-present signal is valid. This matters when
    * hover successfully activated Imagus and the user subsequently
    * right-clicks the same tile.
    *
    * For Sankaku /posts/... links this signal is authoritative. Do not use
-   * the global v2.0.29 media-signature detector because media loaded for a
+   * the global v2.1.3 media-signature detector because media loaded for a
    * different tile can otherwise be credited to the wrong waiting URL.
    */
   function hibV233IsSankakuPostUrl(
@@ -4427,7 +4447,7 @@
       );
 
       console.log(
-        "[HIB v2.0.33 generic] SANKAKU NATIVE SIGNAL - resolver not needed:",
+        "[HIB v2.1.5 generic] SANKAKU NATIVE SIGNAL - resolver not needed:",
         originalUrl
       );
 
@@ -4776,7 +4796,7 @@ async function hibV234WaitForSankakuImagus(
         lastColor
     ) {
       console.debug(
-        "[HIB v2.0.34 generic] IMAGUS STATE:",
+        "[HIB v2.1.5 generic] IMAGUS STATE:",
         {
           originalUrl,
           state:
@@ -4848,7 +4868,7 @@ async function hibV234WaitForSankakuImagus(
         0.10
     ) {
       console.log(
-        "[HIB v2.0.34 generic] IMAGUS GRAY / R_js - HIB fallback permitted:",
+        "[HIB v2.1.5 generic] IMAGUS GRAY / R_js - HIB fallback permitted:",
         originalUrl
       );
 
@@ -4872,7 +4892,7 @@ async function hibV234WaitForSankakuImagus(
       )
     ) {
       console.log(
-        "[HIB v2.0.34 generic] hover ended while Imagus owned attempt; resolver cancelled:",
+        "[HIB v2.1.5 generic] hover ended while Imagus owned attempt; resolver cancelled:",
         originalUrl
       );
 
@@ -4909,7 +4929,7 @@ async function hibV234WaitForSankakuImagus(
      * additional two seconds before declaring that fallback is unnecessary.
      *
      * If exact R_js appears during this settle window, allow the existing
-     * v2.0.37 HIB fallback path to continue on this same hover.
+     * v2.1.3 HIB fallback path to continue on this same hover.
      */
     {
       const hibV244DelayedRjsDeadline =
@@ -4929,7 +4949,7 @@ async function hibV234WaitForSankakuImagus(
             "R_js"
         ) {
           console.log(
-            "[HIB v2.0.44 generic] DELAYED GRAY / R_js - HIB fallback permitted:",
+            "[HIB v2.1.5 generic] DELAYED GRAY / R_js - HIB fallback permitted:",
             originalUrl
           );
 
@@ -4954,7 +4974,7 @@ async function hibV234WaitForSankakuImagus(
           )
         ) {
           console.log(
-            "[HIB v2.0.44 generic] hover ended during delayed R_js watch; resolver cancelled:",
+            "[HIB v2.1.5 generic] hover ended during delayed R_js watch; resolver cancelled:",
             originalUrl
           );
 
@@ -4979,7 +4999,7 @@ async function hibV234WaitForSankakuImagus(
     }
 
       console.log(
-        "[HIB v2.0.34 generic] IMAGUS native attempt completed without R_js - resolver not needed:",
+        "[HIB v2.1.5 generic] IMAGUS native attempt completed without R_js - resolver not needed:",
         originalUrl
       );
 
@@ -5015,7 +5035,7 @@ async function hibV234WaitForSankakuImagus(
     sawCurrentActivity
   ) {
     console.log(
-      "[HIB v2.0.34 generic] IMAGUS remained active without R_js - resolver not needed:",
+      "[HIB v2.1.5 generic] IMAGUS remained active without R_js - resolver not needed:",
       originalUrl
     );
 
@@ -5029,7 +5049,7 @@ async function hibV234WaitForSankakuImagus(
   }
 
   console.log(
-    "[HIB v2.0.34 generic] no active Imagus loader state detected; HIB fallback permitted:",
+    "[HIB v2.1.5 generic] no active Imagus loader state detected; HIB fallback permitted:",
     originalUrl
   );
 
@@ -5049,7 +5069,7 @@ async function hibV222WaitForNativePreview(
 ) {
   /*
    * Sankaku now uses Imagus Reborn's actual loader status rather than the
-   * v2.0.29 media signature or v2.0.32/v2.0.33 crosshair heuristics.
+   * v2.1.3 media signature or v2.1.3/v2.1.3 crosshair heuristics.
    */
   if (
     hibV233IsSankakuPostUrl(
@@ -5083,7 +5103,7 @@ async function hibV222WaitForNativePreview(
       )
     ) {
       console.log(
-        "[HIB v2.0.29 generic] NATIVE SUCCESS - resolver not needed:",
+        "[HIB v2.1.5 generic] NATIVE SUCCESS - resolver not needed:",
         originalUrl
       );
 
@@ -5103,7 +5123,7 @@ async function hibV222WaitForNativePreview(
       )
     ) {
       console.log(
-        "[HIB v2.0.22 generic] hover ended during native grace; resolver cancelled:",
+        "[HIB v2.1.5 generic] hover ended during native grace; resolver cancelled:",
         originalUrl
       );
 
@@ -5132,7 +5152,7 @@ async function hibV222WaitForNativePreview(
     )
   ) {
     console.log(
-      "[HIB v2.0.29 generic] NATIVE SUCCESS at grace boundary - resolver not needed:",
+      "[HIB v2.1.5 generic] NATIVE SUCCESS at grace boundary - resolver not needed:",
       originalUrl
     );
 
@@ -5146,7 +5166,7 @@ async function hibV222WaitForNativePreview(
   }
 
   console.log(
-    "[HIB v2.0.22 generic] no native preview after grace; FALLBACK resolver permitted:",
+    "[HIB v2.1.5 generic] no native preview after grace; FALLBACK resolver permitted:",
     originalUrl
   );
 
@@ -5299,7 +5319,7 @@ async function hibV222WaitForNativePreview(
     }
 
     /*
-     * HIB v2.0.22:
+     * HIB v2.1.3:
      *
      * Do NOT commit to HIB resolution yet.
      *
@@ -5345,7 +5365,7 @@ async function hibV222WaitForNativePreview(
 
     if (!hibV281ConfirmedFailure) {
       console.debug(
-        '[HIB v2.0.81 generic] FALLBACK SKIPPED:',
+        '[HIB v2.1.5 generic] FALLBACK SKIPPED:',
         JSON.stringify({
           reason: hibV281Reason || 'no-confirmed-failure',
           confirmedFailure: false
@@ -5356,7 +5376,7 @@ async function hibV222WaitForNativePreview(
     }
 
     console.log(
-      '[HIB v2.0.81 generic] CONFIRMED IMAGUS FAILURE:',
+      '[HIB v2.1.5 generic] CONFIRMED IMAGUS FAILURE:',
       JSON.stringify({
         reason: hibV281Reason,
         fallbackPermitted: true
@@ -5391,7 +5411,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.log(
-        "[HIB v2.0.27 generic] DIRECT MEDIA TERMINAL:",
+        "[HIB v2.1.5 generic] DIRECT MEDIA TERMINAL:",
         originalUrl
       );
 
@@ -5418,7 +5438,7 @@ async function hibV222WaitForNativePreview(
     }
     else {
       console.log(
-        "[HIB v2.0.37 generic] Sankaku fallback resolving invisibly:",
+        "[HIB v2.1.5 generic] Sankaku fallback resolving invisibly:",
         originalUrl
       );
     }
@@ -5429,12 +5449,12 @@ async function hibV222WaitForNativePreview(
     );
 
     console.log(
-      "[HIB v2.0.28 generic] RESOLVING:",
+      "[HIB v2.1.5 generic] RESOLVING:",
       originalUrl
     );
 
     console.log(
-      "[HIB v2.0.22 generic] FALLBACK START:",
+      "[HIB v2.1.5 generic] FALLBACK START:",
       reason,
       originalUrl
     );
@@ -5461,7 +5481,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        "[HIB v2.0.16 generic] message failed:",
+        "[HIB v2.1.5 generic] message failed:",
         String(error)
       );
 
@@ -5482,7 +5502,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        "[HIB v2.0.16 generic] no verified candidate; original link untouched:",
+        "[HIB v2.1.5 generic] no verified candidate; original link untouched:",
         originalUrl,
         result && result.error
           ? result.error
@@ -5530,7 +5550,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        "[HIB v2.0.23 generic] candidate failed browser media verification:",
+        "[HIB v2.1.5 generic] candidate failed browser media verification:",
         result.fullUrl,
         verification
       );
@@ -5780,7 +5800,7 @@ async function hibV222WaitForNativePreview(
                 );
 
                 console.log(
-                  "[HIB v2.0.28 generic] HOVERED MEDIA HANDOFF:",
+                  "[HIB v2.1.5 generic] HOVERED MEDIA HANDOFF:",
                   result.fullUrl
                 );
               }
@@ -5812,7 +5832,7 @@ async function hibV222WaitForNativePreview(
     );
 
     console.log(
-      "[HIB v2.0.28 generic] ACTUAL MEDIA READY:",
+      "[HIB v2.1.5 generic] ACTUAL MEDIA READY:",
       {
         originalUrl,
 
@@ -5858,7 +5878,7 @@ async function hibV222WaitForNativePreview(
     );
 
     console.log(
-      "[HIB v2.0.16 generic] fallback armed:",
+      "[HIB v2.1.5 generic] fallback armed:",
       kind,
       "8000ms",
       url
@@ -6089,13 +6109,13 @@ async function hibV222WaitForNativePreview(
             : "automatic";
 
         console.log(
-          "[HIB v2.0.74 AnimeID] Site media mode:",
+          "[HIB v2.1.5 AnimeID] Site media mode:",
           hibV274SiteMode
         );
       })
       .catch(error => {
         console.warn(
-          "[HIB v2.0.74 AnimeID] Mode read failed:",
+          "[HIB v2.1.5 AnimeID] Mode read failed:",
           String(error)
         );
       });
@@ -6118,7 +6138,7 @@ async function hibV222WaitForNativePreview(
         : "automatic";
 
     console.log(
-      "[HIB v2.0.74 AnimeID] Site media mode changed:",
+      "[HIB v2.1.5 AnimeID] Site media mode changed:",
       hibV274SiteMode
     );
   });
@@ -6137,7 +6157,7 @@ async function hibV222WaitForNativePreview(
     }
 
     return node.closest(
-      'button.card'
+      'button.card, button.re-card'
     );
   }
 
@@ -6191,23 +6211,78 @@ async function hibV222WaitForNativePreview(
 
     if (!fiberKey) {
       console.log(
-        '[HIB v2.0.46 AnimeID] React fiber unavailable in content world'
+        '[HIB v2.1.5 AnimeID] React fiber unavailable in content world'
       );
 
       return null;
     }
 
-    const hostFiber =
-      reactCard[fiberKey];
+    const hostFiber = reactCard[fiberKey];
 
-    const componentFiber =
-      hostFiber &&
-      hostFiber.return;
+    /* HIB-V211-ANIMEID-RE-CARD
+     * Standard cards previously carried the episode at fiber.return.props.v.
+     * Homepage rail cards can wrap that component in additional React nodes.
+     * Select only an episode matching the hovered card's displayed identity;
+     * never resolve a different episode merely because it shares a series.
+     */
+    const isRailCard = card.matches('button.re-card');
+    const visibleTitle = isRailCard
+      ? String(card.querySelector('.re-title')?.textContent || '').trim()
+      : '';
+    const visibleEpisode = isRailCard
+      ? String(card.querySelector('.re-ep')?.textContent || '').match(/\d+/)?.[0]
+      : null;
+    const normalizeTitle = text => String(text || '')
+      .toLowerCase().replace(/\s+/g, ' ').trim();
 
-    const value =
-      componentFiber &&
-      componentFiber.memoizedProps &&
-      componentFiber.memoizedProps.v;
+    let value = null;
+    if (!isRailCard) {
+      value = hostFiber?.return?.memoizedProps?.v || null;
+    } else {
+      const candidates = [];
+      for (let fiber = hostFiber, depth = 0;
+           fiber && depth < 14; fiber = fiber.return, depth++) {
+        const props = fiber.memoizedProps;
+        if (!props || typeof props !== 'object') continue;
+        /* AnimeID homepage rail: parent component exposes
+         * items: [{v: episode, agoMin}, ...].  Do not rely on the DOM
+         * index: carousel clones/reordering can shift card positions.
+         * Require an unambiguous exact title + episode match below.
+         */
+        const possible = [
+          props.v, props.episode, props.item, props.video,
+          props.entry, props.data
+        ];
+        if (Array.isArray(props.items)) {
+          for (const entry of props.items) {
+            if (entry && typeof entry === 'object') {
+              possible.push(entry.v || entry);
+            }
+          }
+        }
+        for (const candidate of possible) {
+          if (!candidate || typeof candidate !== 'object' ||
+              typeof candidate.embedUrl !== 'string' || !candidate.embedUrl ||
+              candidates.includes(candidate)) continue;
+          candidates.push(candidate);
+        }
+      }
+      const matching = candidates.filter(candidate => {
+        const titleMatches = normalizeTitle(candidate.title) ===
+          normalizeTitle(visibleTitle);
+        const episodeMatches = visibleEpisode === null ||
+          (candidate.ep != null &&
+           String(candidate.ep) === String(Number(visibleEpisode)));
+        return titleMatches && episodeMatches;
+      });
+      if (matching.length === 1) value = matching[0];
+      else if (matching.length !== 1) {
+        console.debug('[HIB v2.1.5 AnimeID] Rail episode identity unavailable:', {
+          title: visibleTitle, episode: visibleEpisode,
+          candidates: candidates.length, matching: matching.length
+        });
+      }
+    }
 
     if (
       !value ||
@@ -6493,7 +6568,7 @@ async function hibV222WaitForNativePreview(
           track.track.mode = 'showing';
 
           console.log(
-            '[HIB v2.0.80 AnimeID] SUBTITLES ACTIVE:',
+            '[HIB v2.1.5 AnimeID] SUBTITLES ACTIVE:',
             JSON.stringify({
               cues: track.track.cues
                 ? track.track.cues.length
@@ -6505,7 +6580,7 @@ async function hibV222WaitForNativePreview(
 
         track.addEventListener('error', () => {
           console.warn(
-            '[HIB v2.0.80 AnimeID] Subtitle track load failed'
+            '[HIB v2.1.5 AnimeID] Subtitle track load failed'
           );
         }, { once: true });
 
@@ -6519,11 +6594,11 @@ async function hibV222WaitForNativePreview(
         });
 
         console.log(
-          '[HIB v2.0.80 AnimeID] SUBTITLE TRACK ATTACHED'
+          '[HIB v2.1.5 AnimeID] SUBTITLE TRACK ATTACHED'
         );
       } catch (error) {
         console.warn(
-          '[HIB v2.0.80 AnimeID] Subtitle attachment failed:',
+          '[HIB v2.1.5 AnimeID] Subtitle attachment failed:',
           String(error)
         );
       }
@@ -6587,7 +6662,7 @@ async function hibV222WaitForNativePreview(
       record.vtt = vtt;
 
       console.log(
-        '[HIB v2.0.80 AnimeID] SUBTITLES READY:',
+        '[HIB v2.1.5 AnimeID] SUBTITLES READY:',
         JSON.stringify({
           format: response.format,
           vttLength: vtt.length
@@ -6601,7 +6676,7 @@ async function hibV222WaitForNativePreview(
       }
 
       console.warn(
-        '[HIB v2.0.80 AnimeID] SUBTITLES FAILED:',
+        '[HIB v2.1.5 AnimeID] SUBTITLES FAILED:',
         String(error)
       );
     }
@@ -6861,7 +6936,7 @@ async function hibV222WaitForNativePreview(
     document.documentElement.appendChild(container);
 
     console.warn(
-      '[HIB v2.0.64 AnimeID] POSSIBLE AUTOPLAY BLOCK:',
+      '[HIB v2.1.5 AnimeID] POSSIBLE AUTOPLAY BLOCK:',
       host,
       'NHPlayer resolution failed within the 10-second limit.'
     );
@@ -6886,7 +6961,7 @@ async function hibV222WaitForNativePreview(
     /* HIB-V266-ANIMEID-STATE-DIAGNOSTIC */
     if (existing) {
       console.log(
-        "[HIB v2.0.66 AnimeID] EXISTING SCAN STATE:",
+        "[HIB v2.1.5 AnimeID] EXISTING SCAN STATE:",
         JSON.stringify({
           state: existing,
           episodeId: episode.id,
@@ -6921,7 +6996,7 @@ async function hibV222WaitForNativePreview(
     );
 
     console.log(
-      '[HIB v2.0.46 AnimeID] RESOLVING:',
+      '[HIB v2.1.5 AnimeID] RESOLVING:',
       {
         trigger,
         id:
@@ -6959,7 +7034,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        '[HIB v2.0.46 AnimeID] resolver message failed:',
+        '[HIB v2.1.5 AnimeID] resolver message failed:',
         episode.embedUrl,
         String(
           error
@@ -6983,7 +7058,7 @@ async function hibV222WaitForNativePreview(
       );
 
       /*
-       * HIB v2.0.63: suggest site-specific autoplay permission
+       * HIB v2.1.3: suggest site-specific autoplay permission
        * only for NHPlayer resolver timeouts.
        */
       try {
@@ -7009,7 +7084,7 @@ async function hibV222WaitForNativePreview(
       }
 
       console.warn(
-        '[HIB v2.0.46 AnimeID] no verified media candidate:',
+        '[HIB v2.1.5 AnimeID] no verified media candidate:',
         episode.embedUrl,
         result &&
         result.error
@@ -7117,7 +7192,7 @@ async function hibV222WaitForNativePreview(
       const hibV262Validated = new URL(result.fullUrl);
 
       console.log(
-        '[HIB v2.0.62 AnimeID] NHPLAYER VIDEO ACCEPTED:',
+        '[HIB v2.1.5 AnimeID] NHPLAYER VIDEO ACCEPTED:',
         JSON.stringify({
           host: hibV262Validated.hostname,
           path: hibV262Validated.pathname,
@@ -7140,7 +7215,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        '[HIB v2.0.46 AnimeID] candidate verification failed:',
+        '[HIB v2.1.5 AnimeID] candidate verification failed:',
         result.fullUrl,
         verification
       );
@@ -7178,7 +7253,7 @@ async function hibV222WaitForNativePreview(
       }
 
       console.log(
-        '[HIB v2.0.78 AnimeID] SUBTITLE HANDOFF:',
+        '[HIB v2.1.5 AnimeID] SUBTITLE HANDOFF:',
         JSON.stringify({
           episode: episode.episode,
           received: !!hibV278Subtitle,
@@ -7199,7 +7274,7 @@ async function hibV222WaitForNativePreview(
       );
 
       console.warn(
-        '[HIB v2.0.46 AnimeID] media resolved but poster handoff could not be installed:',
+        '[HIB v2.1.5 AnimeID] media resolved but poster handoff could not be installed:',
         episode.embedUrl
       );
 
@@ -7219,7 +7294,7 @@ async function hibV222WaitForNativePreview(
     );
 
     console.log(
-      '[HIB v2.0.46 AnimeID] ACTUAL MEDIA READY:',
+      '[HIB v2.1.5 AnimeID] ACTUAL MEDIA READY:',
       {
         title:
           episode.title,
@@ -7271,7 +7346,7 @@ async function hibV222WaitForNativePreview(
             );
 
             console.log(
-              '[HIB v2.0.46 AnimeID] HOVERED MEDIA HANDOFF:',
+              '[HIB v2.1.5 AnimeID] HOVERED MEDIA HANDOFF:',
               result.fullUrl
             );
           }
@@ -7284,7 +7359,7 @@ async function hibV222WaitForNativePreview(
     /*
    * HIB-V255-ANIMEID-HOVER-DELAY
    *
-   * Wait 2000 ms before sending an AnimeID hover
+   * Wait 3000 ms before sending an AnimeID hover
    * resolver request. Only one pending hover is kept.
    * Leaving the card cancels it. Contextmenu remains
    * an explicit immediate action.
@@ -7292,59 +7367,67 @@ async function hibV222WaitForNativePreview(
   let hibV255PendingHover = null;
 
   function hibV255CancelPendingHover() {
-    if (!hibV255PendingHover) {
-      return;
-    }
-
+    if (!hibV255PendingHover) return;
     clearTimeout(hibV255PendingHover.timer);
+    clearInterval(hibV255PendingHover.motionTimer);
     hibV255PendingHover = null;
   }
 
   function hibV255ScheduleHover(card, episode) {
-    if (
-      hibV255PendingHover &&
-      hibV255PendingHover.card === card &&
-      hibV255PendingHover.key === episode.key
-    ) {
-      return;
-    }
+    if (hibV255PendingHover &&
+        hibV255PendingHover.card === card &&
+        hibV255PendingHover.key === episode.key) return;
 
     hibV255CancelPendingHover();
+    if (hibV245AnimeIdStates.has(episode.key)) return;
 
-    if (
-      hibV245AnimeIdStates.has(episode.key)
-    ) {
+    const isRail = card.matches('button.re-card');
+    const target = isRail ? card.querySelector('img.poster-img') || card : card;
+    const pending = { card, key: episode.key, timer: null, motionTimer: null };
+    hibV255PendingHover = pending;
+
+    const activate = () => {
+      if (hibV255PendingHover !== pending) return;
+      hibV255CancelPendingHover();
+      if (!card.isConnected || !card.matches(':hover')) return;
+      hibV245ResolveAnimeId(card, episode, 'hover-delayed-3000ms');
+    };
+
+    // Regular cards retain the original 3-second behavior.
+    if (!isRail) {
+      pending.timer = setTimeout(activate, 3000);
       return;
     }
 
-    const pending = {
-      card: card,
-      key: episode.key,
-      timer: null
-    };
+    // Carousel cards change vertical placement without window scrolling.
+    // Do not start the 3-second resolution timer until the actual poster
+    // remains stationary for 250ms. Restart the timer on subsequent motion.
+    let previous = target.getBoundingClientRect();
+    let lastMotion = performance.now();
+    let steady = false;
 
-    pending.timer = setTimeout(() => {
-      if (hibV255PendingHover !== pending) {
+    pending.motionTimer = setInterval(() => {
+      if (hibV255PendingHover !== pending) return;
+      if (!card.isConnected || !card.matches(':hover')) {
+        hibV255CancelPendingHover();
         return;
       }
-
-      hibV255PendingHover = null;
-
-      if (
-        !card.isConnected ||
-        !card.matches(':hover')
-      ) {
-        return;
+      const current = target.getBoundingClientRect();
+      const moved = Math.abs(current.top - previous.top) > 1 ||
+                    Math.abs(current.left - previous.left) > 1 ||
+                    Math.abs(current.width - previous.width) > 1 ||
+                    Math.abs(current.height - previous.height) > 1;
+      previous = current;
+      if (moved) {
+        lastMotion = performance.now();
+        steady = false;
+        clearTimeout(pending.timer);
+        pending.timer = null;
+      } else if (!steady && performance.now() - lastMotion >= 250) {
+        steady = true;
+        pending.timer = setTimeout(activate, 3000);
       }
-
-      hibV245ResolveAnimeId(
-        card,
-        episode,
-        'hover-delayed-2000ms'
-      );
-    }, 2000);
-
-    hibV255PendingHover = pending;
+    }, 50);
   }
 function hibV245AnimeIdInteraction(
     event,
@@ -7463,10 +7546,10 @@ function hibV245AnimeIdInteraction(
     );
 
     console.log(
-      '[HIB v2.0.46 AnimeID] React embed adapter loaded'
+      '[HIB v2.1.5 AnimeID] React embed adapter loaded'
     );
   }
   console.log(
-    "[HIB v2.0.16 generic] fallback handler loaded"
+    "[HIB v2.1.5 generic] fallback handler loaded"
   );
 })();
