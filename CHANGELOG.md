@@ -80,6 +80,8 @@ Not requested: management (other add-ons / themes), clipboard. Minimum Firefox: 
 * ✔ **imgpv.com pages work again.** imgpv changed its wrapper pages in November 2026: the full picture is no longer a `/cgi-bin/dl.cgi/…` download link but `sN.imgpv.com/i/NNNNN/<id>.jpg`, named in the page's schema.org `ImageObject` (and `og:image`). HIB now reads that (both forms are accepted; `_t` thumbnails are never used) and no longer waits for the slow page to finish loading. Tested on three real imgpv links: each resolved in about 1 s; before, each failed after 20–60 s.
 * ✔ **A picture host that is down no longer blocks everything else.** When HIB finds the host of a link is not answering (the red "site down" tag), it now stops that resolve at once, closes the helper tab it had opened for it, frees the single resolver slot, removes the spinner and leaves that host alone for a minute (queued requests for the same host open no tab at all), so you can open another image straight away. Before, the dead link held the slot for a full minute; in a test the next (working) link now answers in about 11 s instead of 60 s.
 
+* **Manage Sites**: a site can no longer be left with neither Image nor Video ticked (that made its row vanish, so unticking Image first looked like "it unticks itself"); the page now explains it and says to tick the other box first. Quick consecutive clicks no longer draw the list twice.
+
 ### 8. Not in the Mozilla build
 * The HEVC *software* decoder (WebAssembly lab and its lab pages): its source is not available, so only the computer's own decoder is used.
 * "Play with HIB" (one-time takeover from the toolbar) has no button in this release; its code is not reachable from the interface.

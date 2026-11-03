@@ -51,7 +51,11 @@
   return [...set].filter(Boolean).sort();
  }
  const PER_PAGE=8;let page=0;
- async function render(){
+ /* START serialised redraw: a change while a redraw is still running waits for it, so the list is never drawn twice at once */
+ let renderChain=Promise.resolve();
+ function render(){renderChain=renderChain.then(renderNow,renderNow);return renderChain;}
+ /* END serialised redraw */
+ async function renderNow(){
   const list=$('list');list.textContent='';
   const sites=await knownSites();
   $('count').textContent=sites.length?sites.length+(sites.length===1?' site':' sites'):'';
@@ -73,6 +77,15 @@
     const l=document.createElement('label');l.className='chk';l.title=label;l.innerHTML=icon;
     const c=document.createElement('input');c.type='checkbox';c.checked=checked;c.setAttribute('aria-label',label+' for '+h);
     c.onchange=async()=>{
+     if(!c.checked){
+      /* the other box must be ticked, otherwise the site would disappear (it is kept only while Image or Video is on): ask for the other box first */
+      const now=await readSite(h);const imageOn=now.image,videoOn=!!(now.state.permanentVideo||now.state.override);
+      if(!(label==='Image'?videoOn:imageOn)){
+       await render();
+       say(h+' must keep Image or Video ticked. Tick '+(label==='Image'?'Video':'Image')+' first, or use the trash icon to remove the site.');
+       return;
+      }
+     }
      await onchange(c.checked);await render();
      say(label+(c.checked?' on':' off')+' for '+h+(label==='Video'&&c.checked?(await wasVerified(h)?' (previously verified registration restored).':' (scan mode: registered only after a verified playback).'):'.'));
     };
