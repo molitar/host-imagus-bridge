@@ -1,3 +1,91 @@
+/* ===== START IMAGE SECTION - WRAPPED-IMAGE OPENING, PAGE SIDE (hib_img_content.js) =====
+ * Brought in from Host_Imagus_Bridge_v2.1.5 (content.js) for IMAGE pages such as https://sukebei.nyaa.si/view/<id> whose thumbnails link to image-host
+ * "wrapper" pages (imgpv, ouo.io chains, imagetwist, turboimg / imagehost, xxpics, DLsite galleries and generic wrapper pages).
+ * It is injected ONLY into the image sites (hibImageSiteHosts) (registered by hib_img_background.js), top frame only, at document_idle.
+ * What it does: on hover / right-click of a wrapped link it shows a small spinner, asks the background resolver (hib-v2-resolve-*) for the real picture
+ * and then nudges the separate Imagus extension to show it. It never blocks normal clicks. Sukebei rule: wrapper discovery runs only on /view/<id> pages and
+ * links to sukebei itself are navigation, never wrappers.
+ * Left out on purpose (VIDEO, handled by the video section): the 2.1.5 AnimeID card adapter / subtitle bridge.
+ * ===== (original 2.1.5 code follows; the matching END marker is at the end of this file) ===== */
+
+/* ===== IMAGE SECTION - SITE-DOWN FLAG (new in rc386) =====
+ * When a resolver (hib-v2-resolve-*) fails, the background is asked to probe the wrapper address. If the host answers with a server / Cloudflare error
+ * (502-504, 520-530, e.g. imagetwist "522 connection timed out") or does not answer at all, the link gets a small red "site down" tag (tooltip: the status)
+ * and data-hib-site-down="1", so a dead image host is not mistaken for a HIB failure. The wrapper below only observes the answer; it changes nothing else. */
+(() => {
+  const realSend = browser.runtime.sendMessage.bind(browser.runtime);
+  function flagDown(url, status, gone, dead) {
+    for (const a of document.querySelectorAll("a[href]")) {
+      if (a.href !== url && a.dataset.tihOriginalHref !== url) continue;
+      if (a.dataset.hibSiteDown === "1") continue;
+      a.dataset.hibSiteDown = "1";
+      if (a.nextElementSibling && a.nextElementSibling.dataset.hibSiteDownTag) continue;
+      const tag = document.createElement("span");
+      tag.dataset.hibSiteDownTag = "1";
+      tag.textContent = dead ? "link dead (" + status + ")" : gone ? "not available" : "site down" + (status ? " (" + status + ")" : "");
+      tag.title = dead ? "The host answers " + status + ": this picture was removed (broken / dead link)." : gone ? "The host redirects this item to its front page: it was removed or is not offered here." : "The image host did not answer (" + (status || "no response") + "). Try again later.";
+      tag.style.cssText = "margin-left:4px;padding:0 5px;border-radius:3px;background:#b00020;color:#fff;font:600 11px sans-serif;vertical-align:middle";
+      a.after(tag);
+    }
+  }
+  // Links that already look like a plain picture are never sent to a resolver, so a dead host would stay silent. Hovering such an external link probes its host
+  // once per minute (the probe reads only the status line) and flags every link of that host when it is down.
+  const hostProbe = new Map();
+  /* START SITE-DOWN STOP: once a host is flagged down, its resolves end at once (the callers' own failure paths then remove the spinner), new ones are refused for
+   * 60 s without bothering the background, and spinners already shown next to that host's links are removed. */
+  const downHosts = new Map(), downWaiters = new Map();
+  const hostOf = u => { try { return new URL(u, location.href).hostname; } catch (e) { return ""; } };
+  const isDown = h => { const t = downHosts.get(h); return !!t && Date.now() - t < 60000; };
+  function hostDown(host) {
+    downHosts.set(host, Date.now());
+    for (const r of (downWaiters.get(host) || [])) r({ ok: false, error: "site down" });
+    downWaiters.delete(host);
+    for (const a of document.querySelectorAll("a[href]")) {
+      if (a.hostname !== host) continue;
+      for (let n = a.nextElementSibling, i = 0; n && i < 3; n = n.nextElementSibling, i++) if (n.classList && n.classList.contains("hib-v208-spinner")) n.remove();
+    }
+  }
+  /* END SITE-DOWN STOP */
+  document.addEventListener("mouseover", ev => {
+    const a = ev.target instanceof Element ? ev.target.closest("a[href]") : null;
+    if (!a || !/^https?:$/.test(a.protocol) || a.hostname === location.hostname || a.dataset.hibSiteDown || /(^|\.)dlsite\.com$/.test(a.hostname)) return;   // DLsite links: no probe, untouched
+    const last = hostProbe.get(a.hostname);
+    if (last && Date.now() - last < 60000) return;
+    hostProbe.set(a.hostname, Date.now());
+    realSend({ type: "hib-img-probe-site", url: a.href }).then(p => {
+      if (!p || !(p.down || p.dead)) return;
+      if (p.dead && !p.down) { flagDown(a.href, p.status, false, true); return; }       // "link dead" belongs to this one item only
+      for (const b of document.querySelectorAll("a[href]")) if (b.hostname === a.hostname) flagDown(b.href, p.status, false, false);
+      hostDown(a.hostname);
+    }).catch(() => {});
+  }, true);
+  browser.runtime.sendMessage = async function (msg) {
+    /* One-card trace: every resolve request starts (or continues) the trace of the link being worked on. */
+    try {
+      if (msg && /^hib-v2-resolve-/.test(String(msg.type))) {
+        realSend({ type: "hib-rc360-log", event: "RC386_IMG_TRIGGER", detail: { t: Math.round(performance.now()), key: String(msg.pageUrl || msg.url || msg.originalUrl || "").slice(0, 220), resolver: String(msg.type).replace("hib-v2-resolve-", ""), host: location.hostname } }).catch(() => {});
+      }
+    } catch (e) {}
+    const resolveHost = (msg && /^hib-v2-resolve-/.test(String(msg.type)) && !/dlsite|xxpics/.test(String(msg.type))) ? hostOf(msg.pageUrl || msg.url || msg.originalUrl) : "";
+    if (resolveHost && isDown(resolveHost)) return { ok: false, error: "site down (recent probe)" };
+    let reply;
+    if (resolveHost) {
+      let wake;
+      const early = new Promise(r => { wake = r; (downWaiters.get(resolveHost) || downWaiters.set(resolveHost, []).get(resolveHost)).push(r); });
+      try { reply = await Promise.race([realSend(msg), early]); }
+      finally { const list = downWaiters.get(resolveHost); if (list) { const i = list.indexOf(wake); if (i >= 0) list.splice(i, 1); } }
+    } else reply = await realSend(msg);
+    try {
+      if (msg && /^hib-v2-resolve-/.test(String(msg.type)) && !/dlsite|xxpics/.test(String(msg.type)) && msg.pageUrl && reply && reply.ok === false && !/^site down/.test(String(reply.error || ""))) {
+        const probe = await realSend({ type: "hib-img-probe-site", url: msg.pageUrl });
+        if (probe && (probe.down || probe.dead)) flagDown(msg.pageUrl, probe.status, false, probe.dead);
+        if (probe && probe.down && !probe.dead) hostDown(hostOf(msg.pageUrl));
+      }
+    } catch (e) {}
+    return reply;
+  };
+})();
+
 "use strict";
 
 /*
@@ -368,11 +456,16 @@
    * HIB-V285-NATIVE-DLSITE-GALLERY
    * Isolated native viewer. Does not modify Imagus preferences.
    */
+  /* One-card trace producer (store: hib_rc360_diag_bg.js). Sent to the background, which keeps only the current card's events in memory. */
+  function hibImgTrace(ev, detail) {
+    try { browser.runtime.sendMessage({ type: "hib-rc360-log", event: "RC386_IMG_" + ev, detail: Object.assign({ t: Math.round(performance.now()) }, detail || {}) }).catch(() => {}); } catch (e) {}
+  }
   function hibV285OpenGallery(anchor) {
+    hibImgTrace("GALLERY_OPEN", { key: String(anchor && (anchor.dataset.hibOriginalHref || anchor.dataset.tihOriginalHref || anchor.href) || ""), images: (() => { try { return JSON.parse(anchor.dataset.hibGallery || "[]").length; } catch (e) { return 0; } })() });
     let urls;
 
     try {
-      urls = JSON.parse(anchor.dataset.tihGallery || "[]");
+      urls = JSON.parse(anchor.dataset.hibGallery || "[]");
     } catch (error) {
       console.warn("[HIB v2.1.5] Invalid DLsite gallery", error);
       return;
@@ -388,6 +481,7 @@
     if (!urls.length) return;
 
     const old = document.getElementById("hib-v285-native-gallery");
+    if (old && old.hibAnchor === anchor) return;          /* IMAGE SECTION: already open for this very link (hover / click / Imagus-failure gate all ask) - keep it as it is */
 
     if (old && typeof old.hibCloseGallery === "function") {
       old.hibCloseGallery();
@@ -397,6 +491,7 @@
 
     const overlay = document.createElement("div");
     overlay.id = "hib-v285-native-gallery";
+    overlay.hibAnchor = anchor;
 
     Object.assign(overlay.style, {
       position: "fixed",
@@ -636,7 +731,7 @@
     if (!attempt) return null;
     for (const anchor of document.querySelectorAll('a[data-hib-v2-ready="1"]')) {
       if (anchor.dataset.hibV2ProductId === attempt.productId &&
-          anchor.dataset.tihGallery) return anchor;
+          anchor.dataset.hibGallery) return anchor;
     }
     return null;
   }
@@ -792,18 +887,18 @@
       anchor.dataset.hibV2ProductId =
         target.productId;
 
-      anchor.dataset.tihOriginalHref =
+      anchor.dataset.hibOriginalHref =
         target.url;
 
-      anchor.dataset.tihFullImage =
+      anchor.dataset.hibFullImage =
         result.mainUrl || "";
 
-      anchor.dataset.tihGallery =
+      anchor.dataset.hibGallery =
         JSON.stringify(
           gallery
         );
 
-      anchor.dataset.tihGalleryCount =
+      anchor.dataset.hibGalleryCount =
         String(
           gallery.length
         );
@@ -818,7 +913,7 @@
        * allowing the gallery Sieve to match normally.
        */
       const hibV284OriginalHref =
-        anchor.dataset.tihOriginalHref || anchor.href;
+        anchor.dataset.hibOriginalHref || anchor.href;
 
       const hibV284DirectImage =
         result.mainUrl || "";
@@ -883,10 +978,7 @@
       }
     );
 
-    rearmImagus(
-      freshAnchors,
-      target
-    );
+    /* IMAGE SECTION: no Imagus nudge for DLsite - HIB's own gallery is the only viewer and it opens on right-click only (see below). */
   }
 
   function attachXxPics(
@@ -1101,6 +1193,7 @@
     target,
     trigger
   ) {
+    hibImgTrace("TRIGGER", { key: String((target && target.key) || anchor.href || "").slice(0, 200), trigger: String(trigger || ""), host: (() => { try { return new URL(anchor.href).hostname; } catch (e) { return ""; } })() });
     let state =
       states.get(
         target.key
@@ -1379,6 +1472,80 @@
         event,
         "right-click"
       );
+    },
+    true
+  );
+
+  /* ===== IMAGE SECTION - ONE GALLERY FOR DLSITE LINKS (new in rc386) =====
+   * HIB's gallery is the ONLY viewer for DLsite (RJ) links and it opens ONLY on a RIGHT-CLICK on the link (the user's Imagus Reborn setting is "right click, not
+   * hover"). Never on hover, never on a plain click. The picture data is stored under HIB's own attribute names (data-hib-gallery ...) so Imagus's gallery rule has
+   * nothing to show, and three more guards make sure Imagus's own popup cannot win:
+   *   1. the right-click (mousedown / mouseup / contextmenu, button 2) on a DLsite link is stopped at the window, before Imagus's handlers further down;
+   *   2. for 6 s after the right-click (and while HIB's gallery is open) any Imagus popup / loader that still appears is hidden at once;
+   *   3. the browser's own context menu is suppressed for that click only.
+   * Right-click on a link that is not ready yet: the resolver is already running (started by the hover / right-click handler above); the gallery opens the
+   * moment it is ready (25 s at most). */
+  function hibImgFindById(root, id, seen = new Set()) {
+    if (!root || seen.has(root)) return null;
+    seen.add(root);
+    try {
+      const direct = root.querySelector("#" + id);
+      if (direct) return direct;
+      for (const node of root.querySelectorAll("*")) {
+        if (!node.shadowRoot) continue;
+        const nested = hibImgFindById(node.shadowRoot, id, seen);
+        if (nested) return nested;
+      }
+    } catch (error) {}
+    return null;
+  }
+  let hibImgSuppressUntil = 0;
+  let hibImgSuppressTimer = null;
+  function hibImgSuppressImagus(ms) {
+    hibImgSuppressUntil = Math.max(hibImgSuppressUntil, Date.now() + ms);
+    if (hibImgSuppressTimer) return;
+    hibImgSuppressTimer = setInterval(() => {
+      if (document.getElementById("hib-v285-native-gallery")) hibImgSuppressUntil = Math.max(hibImgSuppressUntil, Date.now() + 1500);
+      if (Date.now() > hibImgSuppressUntil) { clearInterval(hibImgSuppressTimer); hibImgSuppressTimer = null; return; }
+      for (const id of ["imagus-popup", "imagus-loader"]) {
+        const el = hibImgFindById(document, id);
+        if (el) el.style.setProperty("display", "none", "important");
+      }
+    }, 50);
+  }
+  const hibImgIsDlsiteRightButton = event => {
+    if (event.button !== 2 && event.type !== "contextmenu") return null;
+    const found = findTarget(event.target);
+    return found && found.target.kind === "dlsite" ? found : null;
+  };
+  /* window capture = before any document / element listener of Imagus that sits lower in the event path */
+  for (const type of ["mousedown", "mouseup", "pointerdown", "pointerup", "auxclick"]) {
+    window.addEventListener(type, event => {
+      if (hibImgIsDlsiteRightButton(event)) { event.stopPropagation(); hibImgSuppressImagus(6000); }
+    }, true);
+  }
+  window.addEventListener(
+    "contextmenu",
+    event => {
+      const found = hibImgIsDlsiteRightButton(event);
+      if (!found) return;
+      event.preventDefault();
+      event.stopPropagation();
+      hibImgSuppressImagus(6000);
+      const productId = found.target.productId || "";
+      const readyAnchor = () => {
+        const live = document.querySelector('a[data-hib-v2-product-id="' + productId + '"][data-hib-v2-ready="1"]');
+        return live && live.dataset.hibGallery ? live : null;
+      };
+      const now = readyAnchor();
+      if (now) { hibV285OpenGallery(now); return; }
+      resolveTarget(found.anchor, found.target, "right-click");        /* (the 2.1.5 right-click handler below the window never sees this event) */
+      const t0 = Date.now();
+      const timer = setInterval(() => {
+        const live = readyAnchor();
+        if (live) { clearInterval(timer); hibV285OpenGallery(live); }
+        else if (Date.now() - t0 > 25000) clearInterval(timer);
+      }, 300);
     },
     true
   );
@@ -1990,8 +2157,10 @@
       !/(^|\.)imgpv\.com$/i.test(
         source.hostname
       ) ||
-      !/^\/cgi-bin\/dl\.cgi\//i.test(
-        source.pathname
+      !(
+        /^\/cgi-bin\/dl\.cgi\//i.test(source.pathname) ||
+        /* IMGPV 2026-11: sN.imgpv.com/i/NNNNN/<id>.jpg (never a _t thumbnail) */
+        (/^\/i\/\d+\/[^\/]+\.(?:jpe?g|png|gif|webp|avif)$/i.test(source.pathname) && !/_t\.[a-z0-9]+$/i.test(source.pathname))
       )
     ) {
       return null;
@@ -2420,11 +2589,16 @@
       return;
     }
 
-    const proxyUrl =
+    let proxyUrl =
       makeWpProxy(
         result.fullUrl,
         anchor
       );
+
+    /* a result found by the shared picture finder (the site's pages changed): use the picture address itself */
+    if (!proxyUrl && result.layoutFallback && /^https:\/\//i.test(String(result.fullUrl))) {
+      proxyUrl = result.fullUrl;
+    }
 
     if (!proxyUrl) {
       states.delete(
@@ -6054,1502 +6228,9 @@ async function hibV222WaitForNativePreview(
     true
   );
 
-  /*
-   * HIB-V245-ANIMEID-REACT-EMBED
-   *
-   * AnimeID browse cards are React-controlled <button class="card"> nodes,
-   * not <a href> wrappers.
-   *
-   * The parent React component exposes the episode payload as:
-   *
-   *   fiber.return.memoizedProps.v
-   *
-   * and that payload currently includes:
-   *
-   *   id
-   *   slug
-   *   title
-   *   ep
-   *   cover/thumb
-   *   embedUrl
-   *
-   * This adapter is deliberately isolated to animeidhentai.com.
-   *
-   * It does not alter the Sankaku native/gray state machine, the generic
-   * anchor detector, OUO, ImgPV, DLsite, or XXPICS.
-   *
-   * Interaction contract:
-   *
-   *   hover:
-   *     resolve v.embedUrl through the existing generic resolver.
-   *
-   *   left click:
-   *     preserve AnimeID's normal React card navigation.
-   *
-   *   right click:
-   *     once resolution is complete, expose the verified direct media URL
-   *     to Imagus through a transparent media anchor over the poster.
-   */
-
-  const hibV245AnimeIdHost =
-    /(^|\.)animeidhentai\.com$/i.test(
-      location.hostname
-    );
-
-  /* HIB-V274-VIDEO-SITE-MODE */
-  let hibV274SiteMode = "automatic";
-
-  if (hibV245AnimeIdHost) {
-    browser.storage.local.get("siteMediaModes")
-      .then(stored => {
-        const modes = stored.siteMediaModes || {};
-        hibV274SiteMode =
-          modes[location.hostname] === "video"
-            ? "video"
-            : "automatic";
-
-        console.log(
-          "[HIB v2.1.5 AnimeID] Site media mode:",
-          hibV274SiteMode
-        );
-      })
-      .catch(error => {
-        console.warn(
-          "[HIB v2.1.5 AnimeID] Mode read failed:",
-          String(error)
-        );
-      });
-  }
-
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (
-      !hibV245AnimeIdHost ||
-      area !== "local" ||
-      !changes.siteMediaModes
-    ) {
-      return;
-    }
-
-    const modes = changes.siteMediaModes.newValue || {};
-
-    hibV274SiteMode =
-      modes[location.hostname] === "video"
-        ? "video"
-        : "automatic";
-
-    console.log(
-      "[HIB v2.1.5 AnimeID] Site media mode changed:",
-      hibV274SiteMode
-    );
-  });
-
-  const hibV245AnimeIdStates =
-    new Map();
-
-  function hibV245AnimeIdCardFromNode(
-    node
-  ) {
-    if (
-      !hibV245AnimeIdHost ||
-      !(node instanceof Element)
-    ) {
-      return null;
-    }
-
-    return node.closest(
-      'button.card, button.re-card'
-    );
-  }
-
-  function hibV245AnimeIdEpisode(
-    card
-  ) {
-    if (
-      !card ||
-      !card.isConnected
-    ) {
-      return null;
-    }
-
-    /*
-     * HIB-V246-FIREFOX-WRAPPED-REACT
-     *
-     * Firefox content scripts run in an isolated extension world.
-     * React's private __reactFiber$... property belongs to the page world,
-     * so the normal DOM wrapper can hide it even though the page console
-     * can see it.
-     *
-     * wrappedJSObject exposes the underlying page-world element in Firefox.
-     * Fall back to the ordinary element for browsers/environments where the
-     * wrapper is unnecessary or unavailable.
-     */
-    let reactCard =
-      card;
-
-    try {
-      if (
-        card.wrappedJSObject
-      ) {
-        reactCard =
-          card.wrappedJSObject;
-      }
-    }
-    catch (error) {
-      reactCard =
-        card;
-    }
-
-    const fiberKey =
-      Object.keys(
-        reactCard
-      ).find(
-        key =>
-          key.startsWith(
-            '__reactFiber$'
-          )
-      );
-
-    if (!fiberKey) {
-      console.log(
-        '[HIB v2.1.5 AnimeID] React fiber unavailable in content world'
-      );
-
-      return null;
-    }
-
-    const hostFiber = reactCard[fiberKey];
-
-    /* HIB-V211-ANIMEID-RE-CARD
-     * Standard cards previously carried the episode at fiber.return.props.v.
-     * Homepage rail cards can wrap that component in additional React nodes.
-     * Select only an episode matching the hovered card's displayed identity;
-     * never resolve a different episode merely because it shares a series.
-     */
-    const isRailCard = card.matches('button.re-card');
-    const visibleTitle = isRailCard
-      ? String(card.querySelector('.re-title')?.textContent || '').trim()
-      : '';
-    const visibleEpisode = isRailCard
-      ? String(card.querySelector('.re-ep')?.textContent || '').match(/\d+/)?.[0]
-      : null;
-    const normalizeTitle = text => String(text || '')
-      .toLowerCase().replace(/\s+/g, ' ').trim();
-
-    let value = null;
-    if (!isRailCard) {
-      value = hostFiber?.return?.memoizedProps?.v || null;
-    } else {
-      const candidates = [];
-      for (let fiber = hostFiber, depth = 0;
-           fiber && depth < 14; fiber = fiber.return, depth++) {
-        const props = fiber.memoizedProps;
-        if (!props || typeof props !== 'object') continue;
-        /* AnimeID homepage rail: parent component exposes
-         * items: [{v: episode, agoMin}, ...].  Do not rely on the DOM
-         * index: carousel clones/reordering can shift card positions.
-         * Require an unambiguous exact title + episode match below.
-         */
-        const possible = [
-          props.v, props.episode, props.item, props.video,
-          props.entry, props.data
-        ];
-        if (Array.isArray(props.items)) {
-          for (const entry of props.items) {
-            if (entry && typeof entry === 'object') {
-              possible.push(entry.v || entry);
-            }
-          }
-        }
-        for (const candidate of possible) {
-          if (!candidate || typeof candidate !== 'object' ||
-              typeof candidate.embedUrl !== 'string' || !candidate.embedUrl ||
-              candidates.includes(candidate)) continue;
-          candidates.push(candidate);
-        }
-      }
-      const matching = candidates.filter(candidate => {
-        const titleMatches = normalizeTitle(candidate.title) ===
-          normalizeTitle(visibleTitle);
-        const episodeMatches = visibleEpisode === null ||
-          (candidate.ep != null &&
-           String(candidate.ep) === String(Number(visibleEpisode)));
-        return titleMatches && episodeMatches;
-      });
-      if (matching.length === 1) value = matching[0];
-      else if (matching.length !== 1) {
-        console.debug('[HIB v2.1.5 AnimeID] Rail episode identity unavailable:', {
-          title: visibleTitle, episode: visibleEpisode,
-          candidates: candidates.length, matching: matching.length
-        });
-      }
-    }
-
-    if (
-      !value ||
-      typeof value !==
-        'object' ||
-      typeof value.embedUrl !==
-        'string' ||
-      !value.embedUrl
-    ) {
-      return null;
-    }
-
-    let embed;
-
-    try {
-      embed =
-        new URL(
-          value.embedUrl,
-          location.href
-        );
-    }
-    catch (error) {
-      return null;
-    }
-
-    if (
-      embed.protocol !==
-        'https:' &&
-      embed.protocol !==
-        'http:'
-    ) {
-      return null;
-    }
-
-    return {
-      id:
-        String(
-          value.id ||
-          value.slug ||
-          embed.href
-        ),
-
-      slug:
-        String(
-          value.slug ||
-          ''
-        ),
-
-      title:
-        String(
-          value.title ||
-          ''
-        ),
-
-      episode:
-        value.ep,
-
-      embedUrl:
-        embed.href,
-
-      key:
-        'animeid:' +
-        String(
-          value.id ||
-          value.slug ||
-          embed.href
-        ) + '|' + embed.href /* HIB-V266-EPISODE-IDENTITY */
-    };
-  }
-
-  function hibV245AnimeIdSpinner(
-    card
-  ) {
-    if (!card) {
-      return null;
-    }
-
-    return card.querySelector(
-      ':scope > .hib-v245-animeid-spinner'
-    );
-  }
-
-  function hibV245ShowAnimeIdSpinner(
-    card
-  ) {
-    if (
-      !card ||
-      !card.isConnected ||
-      hibV245AnimeIdSpinner(
-        card
-      )
-    ) {
-      return;
-    }
-
-    const computed =
-      getComputedStyle(
-        card
-      );
-
-    if (
-      computed.position ===
-        'static'
-    ) {
-      card.dataset.hibV245PositionPatched =
-        '1';
-
-      card.style.position =
-        'relative';
-    }
-
-    const spinner =
-      document.createElement(
-        'span'
-      );
-
-    spinner.className =
-      'hib-v208-spinner hib-v245-animeid-spinner';
-
-    spinner.dataset.hibV245AnimeidSpinner =
-      '1';
-
-    spinner.title =
-      'Host Imagus Bridge is resolving AnimeID video';
-
-    spinner.style.position =
-      'absolute';
-
-    spinner.style.top =
-      '8px';
-
-    spinner.style.right =
-      '8px';
-
-    spinner.style.margin =
-      '0';
-
-    spinner.style.zIndex =
-      '2147483646';
-
-    spinner.style.pointerEvents =
-      'none';
-
-    card.appendChild(
-      spinner
-    );
-  }
-
-  function hibV245RemoveAnimeIdSpinner(
-    card
-  ) {
-    if (!card) {
-      return;
-    }
-
-    for (
-      const spinner of
-      card.querySelectorAll(
-        '.hib-v245-animeid-spinner'
-      )
-    ) {
-      spinner.remove();
-    }
-  }
-
-  function hibV245ExistingOverlay(
-    card
-  ) {
-    if (!card) {
-      return null;
-    }
-
-    return card.querySelector(
-      '.hib-v245-animeid-media'
-    );
-  }
-
-  /*
-   * HIB-V280-IMAGUS-AUTO-SUBTITLES
-   * Add English subtitles to matching Imagus shadow-DOM videos.
-   * Never alter the media source or interrupt playback.
-   */
-  const hibV280Subtitles = new Map();
-  const hibV280VideoTracks = new WeakMap();
-  let hibV280Watcher = null;
-
-  function hibV280ToWebVTT(input, format) {
-    const text = String(input || '')
-      .replace(/^\uFEFF/, '')
-      .replace(/\r\n?/g, '\n');
-
-    if (format === 'vtt' || /^\s*WEBVTT\b/.test(text)) {
-      return text;
-    }
-
-    const output = ['WEBVTT', ''];
-    let count = 0;
-
-    for (const block of text.split(/\n[ \t]*\n/)) {
-      const lines = block.trim().split('\n');
-
-      if (!lines.length) continue;
-
-      let timingIndex = lines.findIndex(line =>
-        /^\s*(?:\d{1,2}:)?\d{2}:\d{2}[,.]\d{3}\s*-->/.test(line)
-      );
-
-      if (timingIndex < 0) continue;
-
-      const timing = lines[timingIndex]
-        .replace(/(\d{2}:\d{2}(?::\d{2})?)[,](\d{3})/g, '$1.$2')
-        .trim();
-
-      const caption = lines.slice(timingIndex + 1).join('\n').trim();
-
-      if (!caption) continue;
-
-      output.push(timing, caption, '');
-      count++;
-    }
-
-    if (!count) {
-      throw new Error('No valid SRT subtitle cues found');
-    }
-
-    return output.join('\n');
-  }
-
-  function hibV280CurrentMedia(video) {
-    return video.currentSrc || video.src || '';
-  }
-
-  function hibV280CheckVideos() {
-    if (!hibV280Subtitles.size) return;
-
-    for (const host of document.querySelectorAll('*')) {
-      if (!host.shadowRoot) continue;
-
-      const video = host.shadowRoot.querySelector(
-        '#imagus-videojs_html5_api'
-      );
-
-      if (!video) continue;
-
-      const media = hibV280CurrentMedia(video);
-      const existing = hibV280VideoTracks.get(video);
-
-      if (
-        existing &&
-        (existing.media !== media || !existing.track.isConnected)
-      ) {
-        existing.track.remove();
-        URL.revokeObjectURL(existing.blob);
-        hibV280VideoTracks.delete(video);
-      }
-
-      const record = hibV280Subtitles.get(media);
-
-      if (!record || !record.vtt) continue;
-
-      const attached = hibV280VideoTracks.get(video);
-
-      if (attached && attached.media === media) {
-        continue;
-      }
-
-      try {
-        const blob = URL.createObjectURL(
-          new Blob([record.vtt], { type: 'text/vtt' })
-        );
-
-        const track = document.createElement('track');
-        track.kind = 'subtitles';
-        track.label = 'English (HIB)';
-        track.srclang = 'en';
-        track.default = true;
-        track.dataset.hibV280Subtitle = '1';
-        track.src = blob;
-
-        track.addEventListener('load', () => {
-          if (hibV280CurrentMedia(video) !== media) return;
-
-          track.track.mode = 'showing';
-
-          console.log(
-            '[HIB v2.1.5 AnimeID] SUBTITLES ACTIVE:',
-            JSON.stringify({
-              cues: track.track.cues
-                ? track.track.cues.length
-                : 0,
-              mode: track.track.mode
-            })
-          );
-        }, { once: true });
-
-        track.addEventListener('error', () => {
-          console.warn(
-            '[HIB v2.1.5 AnimeID] Subtitle track load failed'
-          );
-        }, { once: true });
-
-        video.appendChild(track);
-        track.track.mode = 'showing';
-
-        hibV280VideoTracks.set(video, {
-          media,
-          track,
-          blob
-        });
-
-        console.log(
-          '[HIB v2.1.5 AnimeID] SUBTITLE TRACK ATTACHED'
-        );
-      } catch (error) {
-        console.warn(
-          '[HIB v2.1.5 AnimeID] Subtitle attachment failed:',
-          String(error)
-        );
-      }
-    }
-  }
-
-  function hibV280StartWatcher() {
-    if (hibV280Watcher !== null) return;
-
-    hibV280Watcher = setInterval(
-      hibV280CheckVideos,
-      750
-    );
-
-    hibV280CheckVideos();
-  }
-
-  async function hibV280PrepareSubtitle(overlay, media) {
-    const subtitleURL = overlay &&
-      overlay.dataset.hibSubtitleUrl;
-
-    if (!subtitleURL || !media) return;
-
-    if (hibV280Subtitles.has(media)) return;
-
-    const record = {
-      vtt: null
-    };
-
-    hibV280Subtitles.set(media, record);
-
-    // Bound the number of retained subtitle records.
-    while (hibV280Subtitles.size > 20) {
-      const oldest = hibV280Subtitles.keys().next().value;
-      hibV280Subtitles.delete(oldest);
-    }
-
-    hibV280StartWatcher();
-
-    try {
-      const response = await browser.runtime.sendMessage({
-        type: 'hib-v2-subtitle-fetch',
-        url: subtitleURL
-      });
-
-      if (!response || !response.ok) {
-        throw new Error(
-          response && response.error
-            ? response.error
-            : 'Background subtitle fetch failed'
-        );
-      }
-
-      const vtt = hibV280ToWebVTT(
-        response.text,
-        response.format
-      );
-
-      if (hibV280Subtitles.get(media) !== record) return;
-
-      record.vtt = vtt;
-
-      console.log(
-        '[HIB v2.1.5 AnimeID] SUBTITLES READY:',
-        JSON.stringify({
-          format: response.format,
-          vttLength: vtt.length
-        })
-      );
-
-      hibV280CheckVideos();
-    } catch (error) {
-      if (hibV280Subtitles.get(media) === record) {
-        hibV280Subtitles.delete(media);
-      }
-
-      console.warn(
-        '[HIB v2.1.5 AnimeID] SUBTITLES FAILED:',
-        String(error)
-      );
-    }
-  }
-  function hibV245InstallAnimeIdHandoff(
-    card,
-    episode,
-    fullUrl
-  ) {
-    if (
-      !card ||
-      !card.isConnected ||
-      !episode ||
-      !fullUrl
-    ) {
-      return null;
-    }
-
-    const poster =
-      card.querySelector(
-        '.poster'
-      ) ||
-      card.querySelector(
-        '.card-thumb'
-      );
-
-    if (!poster) {
-      return null;
-    }
-
-    const oldOverlay =
-      hibV245ExistingOverlay(
-        card
-      );
-
-    if (oldOverlay) {
-      oldOverlay.remove();
-    }
-
-    const computed =
-      getComputedStyle(
-        poster
-      );
-
-    if (
-      computed.position ===
-        'static'
-    ) {
-      poster.dataset.hibV245PositionPatched =
-        '1';
-
-      poster.style.position =
-        'relative';
-    }
-
-    const overlay =
-      document.createElement(
-        'a'
-      );
-
-    overlay.className =
-      'hib-v245-animeid-media';
-
-    overlay.href =
-      fullUrl;
-
-    overlay.dataset.tihOriginalHref =
-      episode.embedUrl;
-
-    overlay.dataset.tihFullImage =
-      fullUrl;
-
-    overlay.dataset.hibV2GenericState =
-      'resolved';
-
-    overlay.dataset.hibV245AnimeidId =
-      episode.id;
-
-    overlay.title =
-      episode.title
-        ? episode.title +
-          (
-            episode.episode != null
-              ? ' - Episode ' +
-                String(
-                  episode.episode
-                )
-              : ''
-          )
-        : 'AnimeID resolved media';
-
-    overlay.style.position =
-      'absolute';
-
-    overlay.style.inset =
-      '0';
-
-    overlay.style.display =
-      'block';
-
-    overlay.style.zIndex =
-      '2147483645';
-
-    overlay.style.background =
-      'transparent';
-
-    overlay.style.cursor =
-      'pointer';
-
-    overlay.style.textDecoration =
-      'none';
-
-    /*
-     * Preserve AnimeID's original left-click action.
-     *
-     * The transparent media anchor exists for hover/right-click Imagus
-     * handoff only. A normal primary click invokes the original React
-     * button instead of navigating directly to the media file.
-     */
-    overlay.addEventListener(
-      'click',
-      event => {
-        if (
-          event.button !==
-            0
-        ) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-
-        card.click();
-      }
-    );
-
-    poster.appendChild(
-      overlay
-    );
-
-    return overlay;
-  }
-
-  /*
-   * HIB-V263-NHPLAYER-AUTOPLAY-DIAGNOSTIC
-   *
-   * A timeout does not prove autoplay was denied.
-   * Show a qualified, site-specific diagnostic without
-   * changing Firefox permissions or opening a tab.
-   */
-  /*
-   * HIB-V264-NHPLAYER-10S-VISIBLE-AUTOPLAY
-   *
-   * Show a qualified autoplay warning on the page.
-   * No Firefox permission changes or new tabs.
-   */
-
-  function hibV263ClearAutoplayHint(card) {
-    for (const hint of document.querySelectorAll(
-      '.hib-v264-autoplay-notification'
-    )) {
-      hint.remove();
-    }
-
-    if (card) {
-      for (const hint of card.querySelectorAll(
-        '.hib-v263-autoplay-hint'
-      )) {
-        hint.remove();
-      }
-    }
-  }
-
-  function hibV263ShowAutoplayHint(card, host) {
-    if (!card || !card.isConnected || !document.documentElement) {
-      return;
-    }
-
-    hibV263ClearAutoplayHint(card);
-
-    const container = document.createElement('div');
-    container.className = 'hib-v264-autoplay-notification';
-
-    container.style.cssText = [
-      'position:fixed',
-      'top:16px',
-      'right:16px',
-      'width:min(390px,calc(100vw - 32px))',
-      'box-sizing:border-box',
-      'z-index:2147483647',
-      'pointer-events:auto'
-    ].join(';');
-
-    const shadow = container.attachShadow({
-      mode: 'closed'
-    });
-
-    const panel = document.createElement('div');
-
-    panel.style.cssText = [
-      'position:relative',
-      'background:#161922',
-      'color:#fff',
-      'border:2px solid #e3ae48',
-      'border-radius:10px',
-      'padding:14px 16px',
-      'box-shadow:0 8px 30px rgba(0,0,0,.65)',
-      'font:13px/1.5 Arial,sans-serif'
-    ].join(';');
-
-    const heading = document.createElement('div');
-    heading.textContent =
-      'Host Imagus Bridge — Video Preview Unavailable';
-
-    heading.style.cssText =
-      'font-weight:bold;margin-bottom:8px;padding-right:22px';
-
-    const message = document.createElement('div');
-
-    message.textContent =
-      'Possible autoplay restriction for ' + host +
-      '. Firefox may be blocking video initialization. ' +
-      'Open the player site and set Autoplay to ' +
-      'Allow Audio and Video in Firefox site permissions. ' +
-      'Then hover the AnimeID poster again.';
-
-    const close = document.createElement('button');
-    close.type = 'button';
-    close.textContent = '\u00d7';
-
-    close.setAttribute(
-      'aria-label',
-      'Dismiss autoplay warning'
-    );
-
-    close.style.cssText = [
-      'position:absolute',
-      'top:7px',
-      'right:10px',
-      'font-size:22px',
-      'line-height:1',
-      'border:0',
-      'background:transparent',
-      'color:#fff',
-      'cursor:pointer'
-    ].join(';');
-
-    close.addEventListener('click', () => {
-      container.remove();
-    });
-
-    panel.appendChild(heading);
-    panel.appendChild(message);
-    panel.appendChild(close);
-
-    shadow.appendChild(panel);
-    document.documentElement.appendChild(container);
-
-    console.warn(
-      '[HIB v2.1.5 AnimeID] POSSIBLE AUTOPLAY BLOCK:',
-      host,
-      'NHPlayer resolution failed within the 10-second limit.'
-    );
-  }
-  async function hibV245ResolveAnimeId(
-    card,
-    episode,
-    trigger
-  ) {
-    if (
-      !card ||
-      !episode
-    ) {
-      return;
-    }
-
-    const existing =
-      hibV245AnimeIdStates.get(
-        episode.key
-      );
-
-    /* HIB-V266-ANIMEID-STATE-DIAGNOSTIC */
-    if (existing) {
-      console.log(
-        "[HIB v2.1.5 AnimeID] EXISTING SCAN STATE:",
-        JSON.stringify({
-          state: existing,
-          episodeId: episode.id,
-          embedHost: new URL(episode.embedUrl).hostname
-        })
-      );
-    }
-
-    if (
-      existing ===
-        'resolving'
-    ) {
-      return;
-    }
-
-    if (
-      existing ===
-        'resolved'
-    ) {
-      return;
-    }
-
-    hibV263ClearAutoplayHint(card);
-
-    hibV245AnimeIdStates.set(
-      episode.key,
-      'resolving'
-    );
-
-    hibV245ShowAnimeIdSpinner(
-      card
-    );
-
-    console.log(
-      '[HIB v2.1.5 AnimeID] RESOLVING:',
-      {
-        trigger,
-        id:
-          episode.id,
-        slug:
-          episode.slug,
-        title:
-          episode.title,
-        episode:
-          episode.episode,
-        embedUrl:
-          episode.embedUrl
-      }
-    );
-
-    let result;
-
-    try {
-      result =
-        await browser.runtime.sendMessage({
-          type:
-            'hib-v2-resolve-generic',
-
-          pageUrl:
-            episode.embedUrl
-        });
-    }
-    catch (error) {
-      hibV245AnimeIdStates.delete(
-        episode.key
-      );
-
-      hibV245RemoveAnimeIdSpinner(
-        card
-      );
-
-      console.warn(
-        '[HIB v2.1.5 AnimeID] resolver message failed:',
-        episode.embedUrl,
-        String(
-          error
-        )
-      );
-
-      return;
-    }
-
-    if (
-      !result ||
-      !result.ok ||
-      !result.fullUrl
-    ) {
-      hibV245AnimeIdStates.delete(
-        episode.key
-      );
-
-      hibV245RemoveAnimeIdSpinner(
-        card
-      );
-
-      /*
-       * HIB v2.1.3: suggest site-specific autoplay permission
-       * only for NHPlayer resolver timeouts.
-       */
-      try {
-        const hibV263Embed = new URL(episode.embedUrl);
-        const hibV263Failure = String(
-          result && result.error ? result.error : ''
-        );
-
-        if (
-          hibV263Embed.protocol === 'https:' &&
-          hibV263Embed.hostname === 'nhplayer.com' &&
-          /^\/v\/[^/]+\/?$/.test(hibV263Embed.pathname) &&
-          /resolver timed out/i.test(hibV263Failure)
-        ) {
-          hibV263ShowAutoplayHint(
-            card,
-            hibV263Embed.hostname
-          );
-        }
-      }
-      catch (error) {
-        // Diagnostic failures must not alter resolver behavior.
-      }
-
-      console.warn(
-        '[HIB v2.1.5 AnimeID] no verified media candidate:',
-        episode.embedUrl,
-        result &&
-        result.error
-          ? result.error
-          : 'unknown error'
-      );
-
-      return;
-    }
-
-    const isDirectMedia =
-      hibV226IsDirectMediaUrl(
-        result.fullUrl
-      );
-
-    /*
-     * HIB-V262-NHPLAYER-VIDEO-HANDOFF
-     *
-     * The NHPlayer resolver has already found a signed MP4.
-     * A second cross-origin metadata request from AnimeID
-     * can receive HTTP 403 despite successful direct playback.
-     *
-     * Apply this exception only to NHPlayer-origin MP4 results.
-     * Do not change verification for any other site.
-     */
-    let hibV262NHPlayerVideo = false;
-
-    try {
-      const hibV262Embed = new URL(episode.embedUrl);
-      const hibV262Media = new URL(result.fullUrl);
-
-      hibV262NHPlayerVideo = (
-        isDirectMedia &&
-        hibV262Embed.protocol === 'https:' &&
-        hibV262Embed.hostname === 'nhplayer.com' &&
-        /^\/v\/[^/]+\/?$/.test(hibV262Embed.pathname) &&
-        hibV262Media.protocol === 'https:' &&
-        /\.mp4$/i.test(hibV262Media.pathname) &&
-        hibV262Media.searchParams.has('verify') &&
-        !!hibV262Media.searchParams.get('verify')
-      );
-
-      if (hibV262NHPlayerVideo) {
-        /*
-         * Keep the original signed URL rather than sending it
-         * through the generic URL-cleaning routine.
-         *
-         * A literal plus in a signature must be represented
-         * as %2B, not interpreted as a form-space.
-         * Preserve existing %XX escapes unchanged.
-         */
-        const hibV262QueryIndex = result.fullUrl.indexOf('?');
-
-        if (hibV262QueryIndex >= 0) {
-          const hibV262Prefix =
-            result.fullUrl.slice(0, hibV262QueryIndex + 1);
-
-          const hibV262Query =
-            result.fullUrl.slice(hibV262QueryIndex + 1);
-
-          result.fullUrl =
-            hibV262Prefix + hibV262Query.replace(/\+/g, '%2B');
-        }
-
-        /*
-         * Revalidate after signature normalization.
-         */
-        const hibV262Final = new URL(result.fullUrl);
-
-        hibV262NHPlayerVideo = (
-          hibV262Final.protocol === 'https:' &&
-          /\.mp4$/i.test(hibV262Final.pathname) &&
-          !!hibV262Final.searchParams.get('verify')
-        );
-      }
-    }
-    catch (error) {
-      hibV262NHPlayerVideo = false;
-    }
-
-    if (isDirectMedia && !hibV262NHPlayerVideo) {
-      result.fullUrl =
-        hibV227CleanMediaUrl(result.fullUrl);
-    }
-
-    const verification =
-      hibV262NHPlayerVideo
-        ? {
-            ok: true,
-            width: null,
-            height: null,
-            source: 'nhplayer-signed-mp4'
-          }
-        : isDirectMedia
-          ? await hibV226VerifyMedia(
-              result.fullUrl,
-              12000
-            )
-          : await verifyImage(
-              result.fullUrl,
-              12000
-            );
-
-    if (hibV262NHPlayerVideo) {
-      const hibV262Validated = new URL(result.fullUrl);
-
-      console.log(
-        '[HIB v2.1.5 AnimeID] NHPLAYER VIDEO ACCEPTED:',
-        JSON.stringify({
-          host: hibV262Validated.hostname,
-          path: hibV262Validated.pathname,
-          hasVerify: true,
-          metadataProbeSkipped: true
-        })
-      );
-    }
-
-    if (
-      !verification ||
-      !verification.ok
-    ) {
-      hibV245AnimeIdStates.delete(
-        episode.key
-      );
-
-      hibV245RemoveAnimeIdSpinner(
-        card
-      );
-
-      console.warn(
-        '[HIB v2.1.5 AnimeID] candidate verification failed:',
-        result.fullUrl,
-        verification
-      );
-
-      return;
-    }
-
-    const overlay =
-      hibV245InstallAnimeIdHandoff(
-        card,
-        episode,
-        result.fullUrl
-      );
-
-    /* HIB-V278-ANIMEID-SUBTITLE-HANDOFF */
-    if (overlay) {
-      let hibV278Subtitle = null;
-
-      try {
-        if (typeof result.subtitleURL === 'string') {
-          const candidate = new URL(result.subtitleURL);
-
-          if (
-            candidate.protocol === 'https:' &&
-            /\.(srt|vtt)$/i.test(candidate.pathname) &&
-            !candidate.username &&
-            !candidate.password
-          ) {
-            hibV278Subtitle = candidate;
-            overlay.dataset.hibSubtitleUrl = candidate.href;
-          }
-        }
-      } catch (error) {
-        // Subtitle errors must never affect video playback.
-      }
-
-      console.log(
-        '[HIB v2.1.5 AnimeID] SUBTITLE HANDOFF:',
-        JSON.stringify({
-          episode: episode.episode,
-          received: !!hibV278Subtitle,
-          format: hibV278Subtitle
-            ? hibV278Subtitle.pathname.split('.').pop().toLowerCase()
-            : null
-        })
-      );
-    }
-
-    if (!overlay) {
-      hibV245AnimeIdStates.delete(
-        episode.key
-      );
-
-      hibV245RemoveAnimeIdSpinner(
-        card
-      );
-
-      console.warn(
-        '[HIB v2.1.5 AnimeID] media resolved but poster handoff could not be installed:',
-        episode.embedUrl
-      );
-
-      return;
-    }
-
-    hibV245AnimeIdStates.set(
-      episode.key,
-      'resolved'
-    );
-    /* HIB-V280-AUTO-SUBTITLE-START */
-    hibV280PrepareSubtitle(overlay, result.fullUrl);
-
-
-    hibV245RemoveAnimeIdSpinner(
-      card
-    );
-
-    console.log(
-      '[HIB v2.1.5 AnimeID] ACTUAL MEDIA READY:',
-      {
-        title:
-          episode.title,
-        episode:
-          episode.episode,
-        embedUrl:
-          episode.embedUrl,
-        fullUrl:
-          result.fullUrl,
-        source:
-          result.source,
-        score:
-          result.score,
-        chain:
-          result.chain,
-        width:
-          verification.width,
-        height:
-          verification.height
-      }
-    );
-
-    /*
-     * If the pointer is still on this card, give Imagus an immediate
-     * opportunity to inspect the freshly installed direct-media anchor.
-     */
-    if (
-      card.matches(
-        ':hover'
-      )
-    ) {
-      setTimeout(
-        () => {
-          if (
-            overlay.isConnected
-          ) {
-            overlay.dispatchEvent(
-              new MouseEvent(
-                'mouseover',
-                {
-                  bubbles:
-                    true,
-                  cancelable:
-                    true,
-                  view:
-                    window
-                }
-              )
-            );
-
-            console.log(
-              '[HIB v2.1.5 AnimeID] HOVERED MEDIA HANDOFF:',
-              result.fullUrl
-            );
-          }
-        },
-        0
-      );
-    }
-  }
-
-    /*
-   * HIB-V255-ANIMEID-HOVER-DELAY
-   *
-   * Wait 3000 ms before sending an AnimeID hover
-   * resolver request. Only one pending hover is kept.
-   * Leaving the card cancels it. Contextmenu remains
-   * an explicit immediate action.
-   */
-  let hibV255PendingHover = null;
-
-  function hibV255CancelPendingHover() {
-    if (!hibV255PendingHover) return;
-    clearTimeout(hibV255PendingHover.timer);
-    clearInterval(hibV255PendingHover.motionTimer);
-    hibV255PendingHover = null;
-  }
-
-  function hibV255ScheduleHover(card, episode) {
-    if (hibV255PendingHover &&
-        hibV255PendingHover.card === card &&
-        hibV255PendingHover.key === episode.key) return;
-
-    hibV255CancelPendingHover();
-    if (hibV245AnimeIdStates.has(episode.key)) return;
-
-    const isRail = card.matches('button.re-card');
-    const target = isRail ? card.querySelector('img.poster-img') || card : card;
-    const pending = { card, key: episode.key, timer: null, motionTimer: null };
-    hibV255PendingHover = pending;
-
-    const activate = () => {
-      if (hibV255PendingHover !== pending) return;
-      hibV255CancelPendingHover();
-      if (!card.isConnected || !card.matches(':hover')) return;
-      hibV245ResolveAnimeId(card, episode, 'hover-delayed-3000ms');
-    };
-
-    // Regular cards retain the original 3-second behavior.
-    if (!isRail) {
-      pending.timer = setTimeout(activate, 3000);
-      return;
-    }
-
-    // Carousel cards change vertical placement without window scrolling.
-    // Do not start the 3-second resolution timer until the actual poster
-    // remains stationary for 250ms. Restart the timer on subsequent motion.
-    let previous = target.getBoundingClientRect();
-    let lastMotion = performance.now();
-    let steady = false;
-
-    pending.motionTimer = setInterval(() => {
-      if (hibV255PendingHover !== pending) return;
-      if (!card.isConnected || !card.matches(':hover')) {
-        hibV255CancelPendingHover();
-        return;
-      }
-      const current = target.getBoundingClientRect();
-      const moved = Math.abs(current.top - previous.top) > 1 ||
-                    Math.abs(current.left - previous.left) > 1 ||
-                    Math.abs(current.width - previous.width) > 1 ||
-                    Math.abs(current.height - previous.height) > 1;
-      previous = current;
-      if (moved) {
-        lastMotion = performance.now();
-        steady = false;
-        clearTimeout(pending.timer);
-        pending.timer = null;
-      } else if (!steady && performance.now() - lastMotion >= 250) {
-        steady = true;
-        pending.timer = setTimeout(activate, 3000);
-      }
-    }, 50);
-  }
-function hibV245AnimeIdInteraction(
-    event,
-    trigger
-  ) {
-    const card =
-      hibV245AnimeIdCardFromNode(
-        event.target
-      );
-
-    if (!card) {
-      return;
-    }
-
-    const episode =
-      hibV245AnimeIdEpisode(
-        card
-      );
-
-    if (!episode) {
-      return;
-    }
-
-    /* HIB-V274-VIDEO-SITE-HOVER-GUARD */
-    if (trigger === 'hover') {
-      if (hibV274SiteMode !== "video") {
-        return;
-      }
-
-      hibV255ScheduleHover(card, episode);
-    }
-    else {
-      hibV255CancelPendingHover();
-
-      hibV245ResolveAnimeId(
-        card,
-        episode,
-        trigger
-      );
-    }
-  }
-
-  if (
-    hibV245AnimeIdHost
-  ) {
-    document.addEventListener(
-      'pointerover',
-      event => {
-        const card =
-          hibV245AnimeIdCardFromNode(
-            event.target
-          );
-
-        if (!card) {
-          return;
-        }
-
-        const from =
-          event.relatedTarget;
-
-        if (
-          from instanceof Node &&
-          card.contains(
-            from
-          )
-        ) {
-          return;
-        }
-
-        hibV245AnimeIdInteraction(
-          event,
-          'hover'
-        );
-      },
-      true
-    );
-    document.addEventListener(
-      'pointerout',
-      event => {
-        const card =
-          hibV245AnimeIdCardFromNode(
-            event.target
-          );
-
-        if (
-          !card ||
-          !hibV255PendingHover ||
-          hibV255PendingHover.card !== card
-        ) {
-          return;
-        }
-
-        const to = event.relatedTarget;
-
-        if (
-          to instanceof Node &&
-          card.contains(to)
-        ) {
-          return;
-        }
-
-        hibV255CancelPendingHover();
-      },
-      true
-    );
-
-    document.addEventListener(
-      'contextmenu',
-      event => {
-        hibV245AnimeIdInteraction(
-          event,
-          'contextmenu'
-        );
-      },
-      true
-    );
-
-    console.log(
-      '[HIB v2.1.5 AnimeID] React embed adapter loaded'
-    );
-  }
   console.log(
     "[HIB v2.1.5 generic] fallback handler loaded"
   );
 })();
+
+/* ===== END IMAGE SECTION - hib_img_content.js ===== */

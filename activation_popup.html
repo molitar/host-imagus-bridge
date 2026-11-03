@@ -1,0 +1,130 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Host Imagus Bridge</title><style>
+*{box-sizing:border-box}
+html,body{overflow-x:hidden;overflow-y:auto}
+body{margin:0;width:390px;padding:8px 10px;font:12.5px system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f3f6;color:#18202e}
+button,select,input{font:inherit}
+.card{background:#fff;border:1px solid #d9dde4;border-radius:9px;margin-bottom:6px;padding:7px 10px}
+/* 1. header */
+header{display:flex;align-items:center;gap:10px;padding:0 2px 6px;position:relative}
+header img{width:50px;height:50px;object-fit:contain;flex-shrink:0}
+header h1{font-size:17px;line-height:1.1;margin:0 0 1px;font-weight:760}
+.siteLabel{color:#566275;font-size:11px}
+#host{font-size:14.5px;font-weight:720;overflow-wrap:anywhere}
+.headIcons{position:absolute;top:0;right:0;display:flex;gap:4px}
+.iconBtn{width:26px;height:26px;min-height:0;padding:0;border:0;border-radius:50%;background:transparent;color:#2a3446;display:grid;place-items:center;cursor:pointer}
+.iconBtn:hover{background:#e3e8f0}
+.iconBtn svg{width:17px;height:17px}
+/* 2. site controls */
+.siteRow{display:grid;grid-template-columns:1fr 160px;gap:8px;align-items:center}
+.toggleLine{display:flex;align-items:center;gap:10px}
+#siteText{font-size:12.5px;line-height:1.2}
+.btnStack{display:grid;gap:4px}
+.btn{white-space:nowrap;font-size:12.5px;border:1px solid #b9c2d0;background:#f6f7f9;border-radius:7px;padding:4px 8px;color:#18202e;cursor:pointer;min-height:28px;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn:hover{background:#e6eefb}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.primary{background:#1664cb;border-color:#1664cb;color:#fff}.btn.primary:hover{background:#0c54b1}
+.btn svg{width:13px;height:13px;flex:0 0 auto}
+/* switch */
+.switch{position:relative;display:inline-block;width:46px;height:26px;flex:0 0 auto}
+.switch input{opacity:0;width:0;height:0;position:absolute}
+.switch span{position:absolute;inset:0;background:#c3c9d3;border-radius:26px;transition:.15s;cursor:pointer}
+.switch span::before{content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;background:#fff;border-radius:50%;box-shadow:0 1px 3px #0004;transition:.15s}
+.switch input:checked+span{background:#1664cb}
+.switch input:checked+span::before{transform:translateX(20px)}
+.switch input:disabled+span{opacity:.5;cursor:not-allowed}
+/* section heads */
+.sectionHead{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.sectionHead svg.lead{width:17px;height:17px;color:#2a3446;flex:0 0 auto}
+.sectionHead h2{font-size:13.5px;margin:0;font-weight:720;flex:1}
+.row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.row:last-child{margin-bottom:0}
+.row>label:first-child{flex:0 0 116px;display:flex;align-items:center;gap:8px}
+.row>label svg{width:18px;height:18px;color:#2a3446;flex:0 0 auto}
+select{width:100%;min-width:0;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;color:#192234;padding:4px 6px}
+input[type=range]{flex:1;min-width:0;accent-color:#1769d1}
+.pct{display:flex;align-items:center;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;padding:0 8px;flex:0 0 74px}
+.pct input{width:100%;border:0;background:transparent;text-align:right;padding:3px 2px;color:#192234;-moz-appearance:textfield}
+.pct b{font-weight:500;color:#44516a}
+/* hover delay */
+.delayBox{border:1px solid #c9d3df;border-radius:6px;padding:4px 8px;min-width:88px;text-align:center;font-weight:600;background:#fafcff;flex:0 0 auto}
+.ticks{display:flex;justify-content:space-between;padding:0 6px;margin-top:0;color:#44516a;font-size:11px}
+.delayRow{display:flex;align-items:center;gap:12px}
+.delayRow>div:first-child{flex:1;min-width:0}
+/* tools */
+.pair2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#status{color:#155aa1;font-size:11px;min-height:0;white-space:pre-wrap;padding:0 3px}#status:not(:empty){padding-bottom:4px}
+#help{display:none;font-size:12px;line-height:1.45;color:#2a3446}
+#help.show{display:block}
+#help ul{margin:4px 0 0 16px;padding:0}
+footer{display:flex;justify-content:space-between;align-items:center;color:#566275;font-size:11px;padding:0 3px}
+footer a{color:#1664cb;text-decoration:none;display:flex;align-items:center;gap:5px;cursor:pointer}
+footer a:hover{text-decoration:underline}
+footer svg{width:15px;height:15px}
+
+</style></head><body>
+
+<header>
+ <img src="icons/badge-256.png" alt="Host Imagus Bridge logo">
+ <div><h1>Host Imagus Bridge</h1><div class="siteLabel">Current site:</div><div id="host">Reading current website…</div></div>
+ <div class="headIcons">
+  <button class="iconBtn" id="helpBtn" title="Help" aria-label="Help"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r=".6"/></svg></button>
+  <button class="iconBtn" id="closeBtn" title="Close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg></button>
+ </div>
+</header>
+
+
+<section class="card" id="help">
+ <b>How HIB works</b>
+ <ul>
+  <li>Hover a card for the hover delay: the video is scanned and the card shows a − when it is ready.</li>
+  <li>Right-click a card with a − : the HIB video player opens. Any other card: the image popup.</li>
+  <li>Ctrl + Right Shift does the same as a right-click on the card under the pointer. Ctrl + right-click stays with Imagus Reborn.</li>
+  <li>In the player, ↑ / ↓ change the volume by the Volume step in the player's title bar.</li>
+ </ul>
+</section>
+
+<section class="card">
+ <div class="siteRow">
+  <div class="toggleLine"><label class="switch"><input type="checkbox" id="siteToggle" aria-label="HIB on this site"><span></span></label><div id="siteText">HIB is disabled on this site.</div></div>
+  <div class="btnStack">
+   <button class="btn primary" id="imageSite"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span id="imageSiteText">Add Image Site</span></button>
+   <button class="btn" id="videoSite"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg><span id="videoSiteText">Scan Site for Videos</span></button>
+  </div>
+ </div>
+</section>
+
+<section class="card">
+ <div class="sectionHead">
+  <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+  <h2>Video Playback Settings</h2>
+ </div>
+ <div class="row"><label for="volume"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 8.5a5 5 0 0 1 0 7"/></svg>Default Volume</label><input type="range" id="volume" min="0" max="100" step="1" value="100"><div class="pct"><input type="number" id="volumePct" min="0" max="100" step="1" value="100" aria-label="Default volume percent"><b>%</b></div></div>
+ <div class="row"><label for="startMuted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>Start Muted</label><label class="switch"><input type="checkbox" id="startMuted"><span></span></label></div>
+</section>
+
+<section class="card">
+ <div class="row"><label for="subLang" style="flex:0 0 116px">Subtitle language</label><select id="subLang"><option value="en">English</option><option value="auto">First available</option><option value="off">Off</option><option value="ja">Japanese</option><option value="ar">Arabic</option><option value="es">Spanish</option><option value="fr">French</option><option value="de">German</option><option value="pt">Portuguese</option><option value="it">Italian</option><option value="ru">Russian</option><option value="ko">Korean</option><option value="zh">Chinese</option><option value="id">Indonesian</option><option value="th">Thai</option><option value="vi">Vietnamese</option><option value="tr">Turkish</option><option value="hi">Hindi</option></select></div>
+ <div style="font-size:11px;color:#566275">Shown first in the HIB player. The player also has its own subtitle list.</div>
+</section>
+
+<section class="card">
+ <div class="sectionHead">
+  <svg class="lead" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+  <h2>Video Hover Delay</h2>
+ </div>
+ <div class="delayRow">
+  <div><input type="range" id="hoverDelay" min="1" max="10" step="1" value="2" style="width:100%"><div class="ticks"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div></div>
+  <div class="delayBox" id="delayValue">2 seconds</div>
+ </div>
+</section>
+
+<section class="card">
+ <div class="pair2">
+  <button class="btn" id="picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 3"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Pick Card</button>
+  <button class="btn" id="toolsBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>Tools</button>
+ </div>
+</section>
+
+<div id="status" role="status"></div>
+<footer><span id="version">Host Imagus Bridge</span></footer>
+<script src="activation_popup.js"></script></body></html>

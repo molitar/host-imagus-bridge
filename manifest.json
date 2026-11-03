@@ -1,36 +1,31 @@
 {
   "manifest_version": 2,
   "name": "Host Imagus Bridge",
-  "version": "2.1.5",
-  "description": "Media resolution bridge with Sieve-first Imagus integration and native DLsite gallery fallback.",
+  "version": "3.0.0",
+  "description": "Opens full-size pictures and plays videos from the sites you choose, through Imagus Reborn and the HIB player and gallery.",
   "permissions": [
-    "tabs",
-    "https://sukebei.nyaa.si/*",
-    "https://www.dlsite.com/*",
-    "https://xxpics.org/*",
-    "https://www.xxpics.org/*",
-    "https://ouo.io/*",
-    "https://www.ouo.io/*",
-    "https://www.turboimagehost.com/*",
-    "https://turboimagehost.com/*",
-    "https://*.turboimg.net/*",
-    "https://imagehost.website/*",
-    "https://*.imagehost.website/*",
-    "https://orangepix.is/*",
-    "https://*.orangepix.is/*",
-    "https://imgpv.com/*",
-    "https://*.imgpv.com/*",
-    "https://*.wp.com/*",
-    "https://*/*",
-    "http://*/*",
+    "<all_urls>",
+    "activeTab",
+    "alarms",
+    "bookmarks",
+    "cookies",
+    "downloads",
     "storage",
+    "tabs",
+    "webNavigation",
     "webRequest",
     "webRequestBlocking",
-    "https://*.1hanime.com/*"
+    "unlimitedStorage"
   ],
   "background": {
     "scripts": [
-      "background.js"
+      "hib_rc150_registry.js",
+      "activation_background.js",
+      "hib_debug.js",
+      "background.js",
+      "hib_rc369_cache.js",
+      "hib_rc360_diag_bg.js",
+      "hib_img_background.js"
     ],
     "persistent": true
   },
@@ -56,14 +51,74 @@
   },
   "browser_action": {
     "default_title": "Host Imagus Bridge",
-    "default_popup": "popup.html",
+    "default_popup": "activation_popup.html",
     "default_icon": {
       "16": "icons/badge-16.png",
       "32": "icons/badge-32.png",
       "48": "icons/badge-48.png",
-      "64": "icons/badge-64.png",
-      "96": "icons/badge-96.png",
-      "128": "icons/badge-128.png"
+      "64": "icons/badge-64.png"
     }
-  }
+  },
+  "web_accessible_resources": [
+    "dash.all.min.js",
+    "hib101_player.css",
+    "hib101_player.html",
+    "hib101_player.js",
+    "hib_mp4fix.js",
+    "hib_ass.js",
+    "hib_libass_controller.js",
+    "hls.min.js",
+    "subtitles-octopus-worker.js",
+    "subtitles-octopus-worker.wasm",
+    "hib_rc363_player.html",
+    "hib_rc363_player.js"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "js": [
+        "hib_rc360_mse_observer.js",
+        "hib_rc398_quality.js"
+      ]
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start",
+      "all_frames": false,
+      "js": [
+        "activation_probe.js",
+        "card_detector.js",
+        "image_detection.js",
+        "preview_freeze.js",
+        "hover_video_player.js",
+        "unified_player.js"
+      ]
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_start",
+      "all_frames": false,
+      "js": [
+        "card_still_popup.js"
+      ]
+    },
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true,
+      "js": [
+        "hib_rc411_capture_ui.js"
+      ]
+    }
+  ]
 }

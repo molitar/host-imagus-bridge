@@ -1,272 +1,130 @@
-# Host Imagus Bridge (HIB) v2.1.5
-
-| Preview Builds | Release Builds | License | Downloads |
-|:---:|:---:|:---:|:---:|
-| [![Preview](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?include_prereleases&label=preview&color=orange)](https://github.com/molitar/host-imagus-bridge/releases) | [![Download](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?label=download&color=blue)](https://github.com/molitar/host-imagus-bridge/releases/latest) | [![License](https://img.shields.io/github/license/molitar/host-imagus-bridge?color=orange)](https://github.com/molitar/host-imagus-bridge/blob/main/LICENSE) | [![Downloads](https://img.shields.io/github/downloads/molitar/host-imagus-bridge/total?color=green)](https://github.com/molitar/host-imagus-bridge/releases) |
-
-**A smarter media preview companion for Firefox and Imagus Reborn.**
-
-Host Imagus Bridge (HIB) is a Firefox extension designed to make image galleries and video previews work on websites where **Imagus Reborn** cannot reliably access the original media.
-
-Many websites use intermediate pages, JavaScript-based viewers, redirects, embedded video players, or image-hosting services that make it difficult for Imagus Reborn to retrieve the actual image or video.
-
-**HIB bridges that gap.**
-
-Instead of replacing Imagus Reborn, HIB works alongside it, helping resolve media that would otherwise fail to preview.
-
-## What does Host Imagus Bridge actually do?
-
-Imagine visiting a website containing links to an image gallery, an externally hosted picture, or a video.
-
-Normally, Imagus Reborn attempts to retrieve and display the media using its built-in or custom Sieves.
-
-However, some websites make this difficult:
-
-- The image is behind an intermediate hosting page.
-- A gallery contains multiple images that aren't directly exposed.
-- A video uses an embedded player or streaming playlist.
-- The host requires JavaScript to load before the actual media URL becomes available.
-- A website changes how its images or videos are delivered, breaking existing preview rules.
-
-HIB provides additional site-specific resolution capabilities to help retrieve the underlying media.
-
-**The goal is simple: access more media previews directly from the original page, without manually opening every link.**
-
-## Works alongside Imagus Reborn
-
-One of HIB's most important features is its **Imagus-first approach**.
-
-HIB is not intended to take over media previews that Imagus already handles correctly.
-
-The workflow is:
-
-1. Imagus Reborn receives the user's normal preview interaction.
-2. Imagus attempts to display the media using its existing Sieves.
-3. If Imagus successfully handles the preview, HIB stays out of the way.
-4. If Imagus reaches a confirmed unsupported or failed resolver state, HIB can activate an appropriate fallback for supported sites.
-5. The user receives a preview without needing to manually navigate through the hosting website.
-
-This means users can continue using their existing Imagus Reborn settings and custom Sieves.
-
-For example, if you have a working custom DLsite Sieve, Imagus can use it normally. If no working Sieve is available, HIB can provide its own gallery fallback.
-
-**Existing working Sieves take priority over unnecessary fallback handling.**
-
-## Native image gallery support
-
-HIB v2.1.0 includes a native image gallery viewer.
-
-This is particularly useful for websites where a single link points to a product page or gallery containing multiple images rather than one directly accessible picture.
-
-For supported galleries, HIB can:
-
-- Resolve the underlying image URLs.
-- Assemble multiple images into a navigable gallery.
-- Display images without opening the original hosting page manually.
-- Provide previous and next navigation.
-- Display the current image number and total image count.
-- Close the gallery using Escape or its close button.
-- Apply configurable gallery display-size limits while preserving aspect ratio.
-
-The native gallery is a fallback, not a replacement for working Imagus gallery Sieves.
-
-### Automatic fallback from Imagus failures
-
-A major improvement in v2.1.0 is integration with Imagus Reborn's loading indicator.
-
-Imagus uses different loader states while processing media. HIB can recognize a confirmed gray JavaScript resolver failure (`R_js`) and, when supported gallery images have already been resolved, open its own viewer.
-
-HIB also dismisses the remaining gray loading indicator when its gallery takes over.
-
-This avoids leaving the user with an indefinitely spinning preview indicator.
-
-## Video preview support
-
-HIB also supports site-specific video resolution.
-
-Some websites deliver videos through embedded players rather than direct video URLs. HIB can help locate playable media and hand it off to the preview workflow.
-
-Depending on the supported host, this may involve:
-
-- Resolving embedded video-player pages.
-- Identifying streaming media or playable sources.
-- Working with playlist-based video delivery.
-- Handling associated subtitles.
-- Converting compatible subtitle formats for browser playback.
-
-HIB has been developed and tested with AnimeID and NHPlayer-related workflows, including subtitle handling.
-
-Actual video preview behavior depends on the host, browser capabilities, and Imagus Reborn integration.
-
-## Supported website integrations
-
-HIB uses dedicated handling for certain websites and hosting services, together with a more general fallback mechanism where applicable.
-
-Development and testing have included:
-
-| Website or service | HIB functionality |
-|---|---|
-| **DLsite** | Resolves product preview images and supports native multi-image galleries |
-| **Sukebei** | Supports resolving eligible external media links on torrent detail pages |
-| **Sankaku** | Uses native Imagus handling first, with fallback after confirmed resolver failure |
-| **AnimeID** | Video-source resolution, preview handoff, and subtitle integration |
-| **NHPlayer** | Embedded video resolution |
-| **OUO** | Redirect and intermediate image-host resolution |
-| **TurboImageHost** | Image-host resolution through supported intermediate-page workflows |
-| **XXPICS** | Full-size image resolution |
-| **Other supported hosts** | Host-dependent resolution and fallback behavior |
-
-Support is not universal. A website may still fail because of authentication requirements, anti-bot protections, changed page structures, inaccessible media, or unsupported delivery methods.
-
-## Preview activation follows Imagus
-
-HIB's native fallback is intended to follow an actual Imagus preview attempt instead of imposing an unrelated activation method.
-
-For example:
-
-**If Imagus is configured for hover previews**, hovering can start the preview attempt and the corresponding HIB fallback.
-
-**If Imagus is configured for right-click activation**, the fallback responds to the resulting Imagus failure state rather than simply opening its gallery whenever a link is hovered.
-
-HIB does not require users to replace their Imagus preview preferences with a different set of gallery controls.
-
-## Media display sizing
-
-Version 2.1.0 introduces gallery sizing preferences with these choices:
-
-- Automatic — fit the available screen
-- 960 × 540 — compact viewing, useful on 1280-wide displays
-- 1280 × 720 — HD
-- 1920 × 1080 — Full HD
-- 2560 × 1440 — QHD
-- 3840 × 2160 — 4K
-- Custom width and height
-
-Images retain their aspect ratio and are constrained to the available browser viewport.
-
-Video display sizing preferences are also included, although applying them to Imagus-managed video previews requires additional integration.
-
-## Site controls and configuration
-
-HIB includes a Firefox toolbar popup for managing supported-site behavior.
-
-The extension has site enable/disable controls and media settings, allowing supported workflows to be configured without editing scripts manually.
-
-Development-only diagnostic controls have been removed from the v2.1.0 popup to keep the interface focused on ordinary use.
-
-## Does HIB replace Imagus Reborn?
-
-**No.**
-
-Imagus Reborn remains the primary preview extension.
-
-HIB is an additional compatibility and resolution layer for media sources Imagus cannot handle on its own.
-
-The two serve complementary purposes:
-
-| Imagus Reborn | Host Imagus Bridge |
-|---|---|
-| General-purpose media preview engine | Site-specific media resolver and fallback companion |
-| Uses built-in and custom Sieves | Extracts supported media from difficult hosts |
-| Provides established preview controls | Adds a native gallery when the Imagus preview fails |
-| Controls normal preview activation | Observes confirmed failure states for supported integrations |
-| Handles working previews normally | Avoids interfering with successful Imagus previews |
-
-Users can continue adding or maintaining custom Imagus Sieves. HIB can complement them rather than make them obsolete.
-
-## Do users need PowerShell or additional software?
-
-**No PowerShell script is required for normal HIB operation.**
-
-PowerShell was used during development for source updates, backups, and testing. It is not part of the extension's runtime requirements.
-
-The extension is packaged as a Firefox `.xpi`.
-
-For public release, the extension must go through the appropriate Mozilla signing and review process. Unsigned development builds are intended for temporary testing in compatible Firefox environments.
-
-## What's new in v2.1.0?
-
-Version 2.1.0 represents a major improvement in how HIB integrates with Imagus Reborn.
-
-Major highlights include:
-
-- **Imagus-first handling:** Existing successful Sieves are respected.
-- **Gray-spinner fallback:** HIB can recognize a confirmed Imagus JavaScript resolver failure.
-- **Native gallery:** Multiple resolved images can be browsed directly without a custom Sieve.
-- **Spinner dismissal:** Imagus's failed loading indicator is dismissed when the HIB gallery takes over.
-- **Improved DLsite integration:** Product preview images are resolved and assembled into navigable galleries.
-- **Video and subtitle workflows:** Continued support for embedded video resolution and subtitle handoff.
-- **Configurable media preferences:** New gallery display-size settings and saved video size preferences.
-- **Cleaner popup:** Obsolete development diagnostic controls removed.
-- **Cleaner release packaging:** Development backups and installer scripts excluded from the distributable extension.
-
-## Who is Host Imagus Bridge for?
-
-HIB is particularly useful for:
-
-- Imagus Reborn users who frequently encounter failed media previews.
-- People who browse image-hosting websites and linked galleries.
-- Users who want access to larger source images instead of thumbnails.
-- Users who regularly encounter embedded videos or intermediate hosting pages.
-- People who maintain custom Imagus Sieves but want additional fallback compatibility.
-- Users who prefer viewing media without repeatedly opening new tabs.
-
-## Current project status
-
-**Version:** 2.1.5  
-**Platform:** Firefox / compatible Firefox-based environments  
-**Integration:** Imagus Reborn companion  
-**Distribution:** Firefox `.xpi`  
-**Public Mozilla signing:** Signed
-
-The previous v2.0.88 baseline was successfully tested on multiple DLsite pages, including Sieve-first operation and native gallery fallback with spinner dismissal.
-
-The v2.1.0 release candidate has passed source syntax and package-integrity checks. Full runtime regression testing is still required before treating it as a production release.
+# Host Imagus Bridge (HIB)
+
+**Open full-size pictures and play videos from the sites you choose. A companion for Imagus Reborn, now with its own video player, styled subtitles and one-click backups.**
+
+[![Preview](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?include_prereleases&label=Preview)](https://github.com/molitar/host-imagus-bridge/releases)
+[![Download](https://img.shields.io/github/v/release/molitar/host-imagus-bridge?label=Download)](https://github.com/molitar/host-imagus-bridge/releases/latest)
+[![License](https://img.shields.io/github/license/molitar/host-imagus-bridge)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/molitar/host-imagus-bridge/total)](https://github.com/molitar/host-imagus-bridge/releases)
+
+> **HIB works only on the sites you add** (toolbar button → Tools → Manage Sites). On every other site it does nothing: it does not read, change or collect anything from the page. HIB has no account, no analytics and sends nothing to any server of its own.
+
+## What it is
+
+Host Imagus Bridge is a Firefox add-on that works next to [Imagus Reborn](https://addons.mozilla.org/firefox/addon/imagus-reborn/).
+
+* **Pictures:** pages that wrap a picture behind a second page (image hosts, link shorteners, gallery pages) are resolved for you, and HIB's own gallery steps in when Imagus cannot show the picture.
+* **Videos:** hover a card, wait for the ready mark, right-click, and the **HIB player** opens on top of the page: no new tab, no ads, no leaving the list.
+
+## What's new in 3.0.0
+
+2.1.5 handled pictures. **3.0.0 is the video release**, and it adds a lot around it:
+
+* 🆕 **HIB video player** — MP4, HLS and DASH, resume where you stopped, keyboard control, volume and jump steps.
+* 🆕 **Hover to scan, right-click to play** — HIB checks the video behind a card and marks it when it is ready.
+* 🆕 **Styled subtitles** — ASS / SSA drawn with libass, plus SRT and VTT; language detection, a default language, size and on/off controls.
+* 🆕 **Tools page** — Manage Sites, display sizes, preferred source, Save / Restore Settings, Report Issue, Submit Request.
+* 🆕 **Backups inside the toolbar** — settings saved as dated bookmarks in one HIB folder, restored with one click. No file chooser, no copy and paste.
+* 🆕 **Report Issue / Submit Request** — a pre-filled GitHub page plus a diagnostic report for you to attach. Nothing is posted by HIB.
+* 🆕 **Beta features** (off by default) — *Capture streams* for pages with no direct video address, and *HEVC video support*.
+* 🆕 **Resilient picture finding** — resolvers keep their exact pattern for a known host and fall back to a shared picture finder when a site changes its pages; a dead image host no longer blocks the next image.
+* 🆕 **imgpv.com support updated** for the site's new page layout.
+
+Full list: [CHANGELOG](CHANGELOG.md).
+
+## Features
+
+### Video
+* Hover a card for the hover delay (1–10 seconds, your choice); the video is scanned and the card shows a **−** when it is ready. Right-click it to open the player. `Ctrl + Right Shift` does the same for the card under the pointer; `Ctrl + right-click` stays with Imagus Reborn.
+* **Scan Site for Videos**: a site is registered for good only after a real playback has been verified, so a wrong guess never sticks.
+* **Pick Card**: point at the cards HIB should treat as videos on a page it did not recognise.
+* Plays **MP4, HLS and DASH**; seek bar with buffered range, volume, mute, full screen.
+* Space = play / pause, ← / → = jump (5–30 s), ↑ / ↓ = volume (step set in the title bar), **Bar** = control-bar opacity.
+* **Resume** position per episode.
+* Video pieces are kept in **memory only**, one video at a time, and cleared when the player closes. Nothing is saved to disk.
+* HEVC (H.265) plays through a decoder already on your computer (*Beta*; HIB installs nothing).
+
+### Subtitles
+* **Styled ASS / SSA** with libass — colours, fonts, sizes, positions and fades as the author intended — plus **SRT and VTT**.
+* HIB finds the subtitles of a video from the files the page loads, the files the page lists, and the usual names next to the video, and offers every track with its language.
+* **Default language** (English, first available, off, or one of 15 more), **CC** on/off, **A− / A+** size.
+* A default font (Figtree, SIL Open Font License) is bundled; if the video page loads its own fonts, HIB uses them for ASS subtitles. HIB never fetches a font from an unrelated website.
+
+### Pictures
+* **Imagus first**: Imagus handles a preview first; HIB steps in after a confirmed failure. Your own Sieves keep priority.
+* **Native gallery** with previous / next, an image counter, Escape to close, and configurable size limits that keep the aspect ratio.
+* Wrapper and image-host pages are resolved (imgpv, ouo.io chains, TurboImageHost, XXPICS, DLsite galleries, and generic wrapper pages).
+* **Layout fallback**: when a site changes its pages, resolvers fall back to a shared picture finder (schema.org `ImageObject`, `og:image`, large images, picture links, addresses in the page's scripts) and note **LAYOUT CHANGED** in the log.
+* **Dead hosts stop quickly**: a host that does not answer gets a red "site down" tag, its spinner and helper tab are closed, and the next image opens at once.
+
+### Sites and settings
+* **Manage Sites**: one short list with an **Image** and a **Video** checkbox per site.
+* **Media display size** (gallery / video): fit the screen, original, or custom.
+* **Preferred source** for videos with more than one: automatic, MP4 or HLS.
+* **Toolbar popup**: default volume, start muted, subtitle language, hover delay.
+
+### Backups that survive a reinstall
+* **Save Settings** writes a dated bookmark in one folder you choose (default *Other Bookmarks / Host Imagus Bridge Backups*); the newest 14 are kept.
+* **Restore Settings** lists only HIB backups, newest first, with the number of sites in each.
+* Restoring puts back exactly the settings the backup describes.
+* HIB touches only bookmarks whose title starts with `HIB settings `; your other bookmarks are never read or changed.
+
+### Report a problem or ask for a site
+* **Report Issue**: opens a pre-filled GitHub issue and saves a diagnostic report on your computer for you to attach.
+* **Submit Request → Request Site / Request Feature**.
+* Address query parts are removed; cookies, logins and passwords are never collected.
 
 ## Screenshots
 
-**1. With the custom Imagus Reborn Sieve (`HIB_v2_DLsite_Gallery`).** The gallery opens in the normal Imagus Reborn popup and the arrow keys step through the images.
+*All screenshots use a made-up demo library and generated clips; no real site or personal data is shown.*
 
-![Gallery opened by the custom Imagus Reborn Sieve](screenshots/1-imagus-sieve-gallery.png)
-
-**2. Without the custom Sieve.** HIB falls back to its own built-in gallery, which pops up with previous/next buttons and an image counter. Its size can be changed in the HIB options.
-
-![HIB's built-in gallery fallback](screenshots/2-hib-native-gallery.png)
-
-**3. Gallery size.** Set a preset size or custom dimensions for HIB's gallery from the toolbar popup.
-
-![HIB popup with the gallery size options](screenshots/3-gallery-size-options.png)
+| | |
+|---|---|
+| ![Styled subtitles](screenshots/player-styled-subtitles.png) | ![Hover ready mark](screenshots/hover-ready-tag.png) |
+| ![Toolbar popup](screenshots/toolbar-popup.png) | ![Manage Sites](screenshots/manage-sites.png) |
+| ![Tools](screenshots/tools.png) | ![Restore Settings](screenshots/restore-settings.png) |
 
 ## Installation
 
-Download the latest `.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page. Releases marked "Pre-release" are unsigned builds waiting for Mozilla: they install in Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`, or can be loaded temporarily from `about:debugging`. Normal releases are signed by Mozilla and install in regular Firefox. Imagus Reborn must be installed for HIB to have anything to complement.
+1. Download `Host_Imagus_Bridge_v3.0.0.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page, or install it from addons.mozilla.org when it is listed.
+2. Signed releases install in regular Firefox. For an unsigned pre-release use Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`, or load it temporarily from `about:debugging`.
+3. Install [Imagus Reborn](https://addons.mozilla.org/firefox/addon/imagus-reborn/) as well: HIB complements it.
+4. Open the toolbar button → **Tools → Manage Sites** and add the sites you want HIB to work on.
+
+Installs **over 2.1.5** (same add-on): your settings are kept. Firefox may ask you to approve the new permissions when you update.
+
+## Compatibility
+
+* Firefox desktop **115 or newer** (Manifest V2).
+* Works alongside Imagus Reborn; HIB does not replace it.
 
 ## Permissions
 
-The extension asks for these permissions, and the manifest declares that it collects no data:
+| Permission | Why |
+|---|---|
+| All websites | Reach the sites you add and the other hosts their videos and pictures come from. Page scripts check your site list first and do nothing elsewhere. |
+| `tabs`, `webNavigation` | Open and close HIB's own short-lived helper tabs; close stray ones. |
+| `webRequest`, `webRequestBlocking` | Send the Referer that some video hosts require for addresses HIB has verified; recognise video and subtitle addresses. |
+| `storage`, `unlimitedStorage` | Your settings, site list, display sizes, resume positions. |
+| `bookmarks` | The settings backup only (`HIB settings …`). |
+| `downloads` | Save the files *you* ask for: the report file, a settings backup, a diagnostic capture. Nothing is downloaded from the sites you visit. |
+| `cookies` | Read a protected video's own cookie so the player can fetch its key; clear oversized link-shortener cookies. Never stored or sent. |
+| `alarms`, `activeTab` | A timer that clears the in-memory video cache; toolbar actions. |
 
-- **`tabs` and `storage`:** to resolve media in the background and to remember your site and size settings.
-- **`webRequest` and `webRequestBlocking`:** to present the referrer the player page itself would send when a supported video host's files are requested, because those hosts otherwise refuse the request with HTTP 403.
-- **Host access:** the supported sites listed above, plus access to all websites so media links on the pages you browse can be resolved.
+Data collection: **none**.
 
-## Source and releases
+## Source code
 
-The extension is plain JavaScript with no build step: the `.xpi` is a zip of `manifest.json`, `background.js`, `content.js`, `popup.html`, `popup.js` and `icons/`. The `sieves/` folder holds the custom Imagus Sieves that go with it. Releases are listed in [CHANGELOG.md](CHANGELOG.md).
+Plain, readable JavaScript with no build step. Third-party code in the package: dash.js 4.7.4 (BSD-3-Clause), hls.js 1.7.3 (Apache-2.0), @jellyfin/libass-wasm 4.2.4 (official files), and the Figtree font (SIL OFL 1.1).
+
+## Original project
+
+Host Imagus Bridge is a companion to **Imagus Reborn** and builds on it; it is a separate add-on.
 
 ## License
 
-GNU General Public License version 3. See [LICENSE](LICENSE).
+GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
----
+## Community & Support
 
-### In summary
-
-**Host Imagus Bridge extends what Imagus Reborn can preview.**
-
-When a website hides its media behind scripts, intermediate pages, galleries, or embedded players, HIB helps retrieve the underlying images or videos.
-
-If Imagus can handle the media itself, HIB stays out of its way.
-
-If Imagus encounters a supported failure, HIB can step in with additional resolution capabilities—including its own image gallery.
-
-**More supported previews. Fewer broken links. Less manual browsing. Without replacing Imagus Reborn.**
+* Found a bug or want a site supported? Use **Tools → Report Issue** / **Submit Request** in the add-on, or open an [issue](https://github.com/molitar/host-imagus-bridge/issues).

@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>HIB Diagnostics</title><style>
+*{box-sizing:border-box}
+html,body{overflow:hidden}
+body{margin:0;width:390px;padding:8px 10px;font:12.5px system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f3f6;color:#18202e}
+button,input{font:inherit}
+.card{background:#fff;border:1px solid #d9dde4;border-radius:9px;padding:8px 10px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.top h1{font-size:16px;margin:0;font-weight:740;flex:1}
+.iconBtn{width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:#2a3446;display:grid;place-items:center;cursor:pointer}
+.iconBtn:hover{background:#e3e8f0}
+.iconBtn svg{width:18px;height:18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.btn{white-space:nowrap;border:1px solid #b9c2d0;background:#f6f7f9;border-radius:7px;padding:8px 8px;color:#18202e;cursor:pointer;min-height:36px;display:flex;align-items:center;justify-content:flex-start;gap:8px}
+.btn:hover{background:#e6eefb}
+.btn svg{width:16px;height:16px;flex:0 0 auto;color:#2a3446}
+#restoreFile{display:none}
+.sectionHead{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.sectionHead h2{font-size:13.5px;margin:0;font-weight:720;flex:1}
+.row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.row>label{flex:0 0 100px}
+select{width:100%;min-width:0;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;color:#192234;padding:4px 6px}
+.dims{display:flex;align-items:center;gap:6px;flex:1}.dims input{width:78px;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;padding:4px 6px}.px{color:#566275}.pctText{min-width:38px;text-align:right;color:#304058}
+.card+.card{margin-top:6px}
+#status{color:#155aa1;font-size:11px;white-space:pre-wrap;padding:6px 3px 0;min-height:0}
+ .row{display:flex;align-items:center;gap:8px;margin:4px 0}.sectionHead{display:flex;align-items:center;gap:7px;margin-bottom:4px}.sectionHead h2{font-size:13.5px;margin:0;font-weight:720;flex:1}.card+.card{margin-top:6px}.btn:disabled{opacity:.5;cursor:not-allowed}
+</style></head><body>
+<section class="card"><div class="top"><button class="iconBtn" id="back" title="Back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><h1>Diagnostics</h1></div></section>
+<!-- The "Capture streams" switch moved to Tools > Beta features. This page keeps only the support-only tools. -->
+<section class="card" id="diagBox">
+ <div class="sectionHead"><h2>Diagnostics (support only)</h2></div>
+ <div class="row"><label for="diagmode" style="flex:1">Diagnostics mode</label><input type="checkbox" id="diagmode"></div>
+ <div style="font-size:11px;color:#566275;margin:3px 0">Off by default. Turn on only when troubleshooting a bug report: it enables the tools below, including the stand-alone captured-stream player tab.</div>
+ <div class="row"><button class="btn" id="rc360copy">Copy Current Tab Diagnostics</button><button class="btn" id="rc360clear">Clear</button></div>
+ <div class="row"><button class="btn" id="rc363play">Open diagnostics player tab</button></div>
+</section>
+<div id="status" role="status"></div>
+<script src="diagnostics.js"></script></body></html>

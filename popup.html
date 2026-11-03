@@ -11,12 +11,17 @@
     }
 
     body {
-      width: 370px;
+      width: 420px;
+      min-width: 420px;
+      max-width: none;
+      overflow-x: hidden;
       margin: 0;
       padding: 16px;
       box-sizing: border-box;
     }
 
+    *, *::before, *::after { box-sizing: border-box; }
+    select, input[type="range"] { max-width: 100%; }
     .header {
       display: flex;
       align-items: center;
@@ -58,8 +63,8 @@
     }
 
     button {
-      width: 100%;
-      margin-top: 9px;
+      width: calc(100% - 36px);
+      margin: 9px 18px 0;
       padding: 9px 12px;
       box-sizing: border-box;
       border: 1px solid rgba(127,127,127,.45);
@@ -124,6 +129,8 @@
       margin-top: 12px;
     }
 
+    .hibRc78Format {font-size:11px;opacity:.8;max-width:126px;overflow-wrap:anywhere;}
+
     #manualSite {
       flex: 1;
       min-width: 0;
@@ -165,12 +172,25 @@
       font-size: 13px;
       opacity: .7;
     }
+    /* RC136 / TEMPORARY TOOLBAR RESET: scoped to TEST popup, not discovery window. */
+    .hib-rc136-logo-tools { width: 126px; flex: 0 0 126px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .hib-rc136-logo-tools img { width: 96px; height: 96px; flex: 0 0 96px; }
+    button.hib-rc136-reset { width: 126px; margin: 0; padding: 5px 4px; font-size: 11px; line-height: 1.2; }
   </style>
 </head>
 
 <body>
+  <div style="padding:6px 8px 0"><a href="tools.html" style="display:inline-flex;align-items:center;gap:6px;font:13px system-ui,sans-serif;color:#1664cb;text-decoration:none">&#8592; Back to Settings</a></div>
   <div class="header">
-    <img src="icons/badge-128.png" alt="">
+    <div class="hib-rc136-logo-tools">
+      <img src="icons/badge-128.png" alt="">
+      <!-- RC136 / TEMPORARY TEST CONTROL: remove on toolbar redesign. -->
+      <button id="hibRc136ResetSite" class="hib-rc136-reset" disabled title="Clear detection results for this site only">Reset site status</button>
+      <!-- RC139 / TEMPORARY TEST CONTROLS: remove with planned toolbar redesign. -->
+      <label for="hibRc139HoverDelay" style="font-size:11px">Video hover: <output id="hibRc139HoverLabel">2</output>s</label>
+      <input id="hibRc139HoverDelay" type="range" min="1" max="10" value="2" step="1" style="width:126px" title="Video discovery hover delay (seconds)">
+      <label style="font-size:11px;display:flex;gap:4px;align-items:center"><input type="checkbox" id="hibRc139ScanVideo" style="margin:0"> Scan for video (TEST)</label>
+    </div>
     <h1>Host Imagus Bridge</h1>
   </div>
 
@@ -202,9 +222,21 @@
         <label>Width <input id="hibV210VideoWidth" type="number" min="160" max="7680" value="960" style="width:72px"></label>
         <label style="margin-left:8px">Height <input id="hibV210VideoHeight" type="number" min="90" max="4320" value="540" style="width:72px"></label>
       </div>
+      <div style="margin-top:12px"><strong>Video Playback Defaults</strong></div>
+      <label for="hibTestAudioVolume" style="display:block;margin-top:8px">Default volume <output id="hibTestAudioLevel">100%</output></label>
+      <input id="hibTestAudioVolume" type="range" min="0" max="100" value="100" style="width:100%">
+      <label style="display:block;margin-top:6px"><input type="checkbox" id="hibTestAudioMuted"> Start muted</label>
+      <label for="hibTestQualityDefault" style="display:block;margin-top:8px">Preferred source quality</label>
+      <select id="hibTestQualityDefault" style="width:100%;margin-top:5px">
+        <option value="highest">Highest available (default)</option>
+        <option value="auto">Auto, when adaptive streaming supports it</option>
+      </select>
+      <div class="note">Audio applies to HIB's direct and HLS players. Source-quality preference is reserved for multi-source selection; it does not currently change playback quality.</div>
       <div id="hibV210MediaStatus" style="font-size:11px;margin-top:8px;opacity:.85">Loading settings...</div>
     </div>
-
+    <button id="hibTestScanner" class="secondary">Scan Video Site (TEST)</button>
+    <button id="hibTestClearCache" class="secondary">Clear HIB video cache</button>
+    <button id="hibTestBackups" class="secondary">Backup / Restore Settings (TEST)</button>
     <button id="sitesButton" class="secondary">
       Sites
     </button>

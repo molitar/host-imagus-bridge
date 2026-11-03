@@ -1,0 +1,50 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Manage Sites</title><style>
+*{box-sizing:border-box}
+body{margin:0;width:400px;padding:12px;font:13px system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f3f6;color:#18202e}
+button,input{font:inherit}
+.card{background:#fff;border:1px solid #d9dde4;border-radius:10px;padding:8px 10px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.top h1{font-size:16px;margin:0;font-weight:740;flex:1}
+#count{color:#566275;font-size:12px}
+.iconBtn{width:30px;height:30px;padding:0;border:0;border-radius:50%;background:transparent;color:#2a3446;display:grid;place-items:center;cursor:pointer}
+.iconBtn:hover{background:#e3e8f0}
+.iconBtn svg{width:19px;height:19px}
+.head,.siteItem{display:grid;grid-template-columns:1fr 50px 50px 30px;align-items:center;gap:4px;padding:0 4px}
+.head{color:#566275;font-size:11px;min-height:22px;border-bottom:1px solid #e3e7ed}
+.head span{text-align:center}
+.head span:first-child{text-align:left}
+.siteItem{min-height:32px;border-bottom:1px solid #edf0f4}
+.siteItem:last-child{border-bottom:0}
+.siteItem.current{background:#eef4fd;border-radius:6px}
+.siteName{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chk{display:flex;align-items:center;justify-content:center;gap:4px;color:#2a3446;cursor:pointer}
+.chk svg{width:16px;height:16px}
+.chk input{width:16px;height:16px;margin:0;accent-color:#1664cb;cursor:pointer}
+.trash{width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:#8a3a3a;display:grid;place-items:center;cursor:pointer}
+.trash:hover{background:#fbe9e9}
+.trash svg{width:17px;height:17px}
+.empty{color:#566275;font-size:12px;padding:10px 4px}
+#filterWrap{display:none;margin-bottom:6px}
+#filter,#newSite{width:100%;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;padding:6px 8px}
+.pager{display:none;align-items:center;justify-content:center;gap:10px;margin-top:4px;color:#566275;font-size:12px}.pager button{width:26px;height:24px;border:1px solid #b9c2d0;background:#f6f7f9;border-radius:6px;cursor:pointer;color:#2a3446}.pager button:disabled{opacity:.4;cursor:default}
+.addRow{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px}
+.btn{border:1px solid #1664cb;background:#1664cb;color:#fff;border-radius:7px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:#0c54b1}
+#status{color:#155aa1;font-size:11.5px;min-height:14px;white-space:pre-wrap;padding:6px 3px 0}
+</style></head><body>
+<section class="card">
+ <div class="top">
+  <button class="iconBtn" id="back" title="Back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <h1>Manage Sites</h1><span id="count"></span>
+ </div>
+ <!-- Plain-language promise shown to the user: HIB acts only on the sites listed on this page. -->
+ <p id="scopeNote" style="margin:2px 2px 4px;font-size:11.5px;line-height:1.35;color:#3b4658">HIB works <b>only on the sites listed here</b>. On every other site it does nothing: it does not read, change or collect anything from the page. Firefox lists "all websites" for this add-on because a video often comes from another host than the page you added, so HIB must be allowed to reach it.</p>
+ <p id="loadNote" style="margin:0 2px 8px;font-size:11.5px;line-height:1.35;color:#3b4658">On the sites you add, HIB loads only what it needs: the picture or video you open, its subtitles, and for picture links the page that holds the picture. While you watch, the player keeps the video's segments <b>in memory</b> for smooth playback; nothing is saved to disk and it is cleared when you close the player. HIB sends nothing to its developer or to any server of its own.</p>
+ <div id="filterWrap"><input type="search" id="filter" placeholder="Filter sites" aria-label="Filter sites"></div>
+ <div class="head"><span>Domain</span><span title="Image">Image</span><span title="Video">Video</span><span></span></div>
+ <div id="list"></div>
+ <div class="pager" id="pager"></div>
+ <div class="addRow"><input type="text" id="newSite" placeholder="Add a site (example.com)" aria-label="Add a site"><button class="btn" id="add">Add</button></div>
+</section>
+<div id="status" role="status"></div>
+<script src="manage_sites.js"></script></body></html>

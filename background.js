@@ -1,985 +1,53 @@
-/*
- * HIB-V218-GLOBAL-TAB-OWNER
- *
- * Global resolver invariant:
- *
- *   HIB-owned resolver roots <= 1
- *
- * All resolver classes share this queue.
- *
- * Resolver-page children created with target=_blank/window.open are closed.
- */
+/* ===== START VIDEO SECTION - BACKGROUND (video parts of background.js) - VIDEO FINAL (RC507) =====
+ * Where the video work lives in this file (search these names):
+ *   scan loop (hibRc133ResolveMedia, 'RC448 TICK'): detection of a playing / verified source; PLAY_ACTIVATION clicks (play buttons, labelled play, and a player's own
+ *     'Continue watching?' prompt inside a player container, RC501); FAST REFRESH of a known episode (hibKnownPath / hibFileKey, RC468/RC471); early accept of a verified
+ *     stream manifest (hibManifestAlive, RC495).
+ *   hib-rc326-verify-url: is a saved address still alive (2.5 s limit, Range probe, Referer retry, RC465/RC496).
+ *   Referer handling: hib101MediaOriginHints, hibRefererListener, hibRefererNeedProbe, hib-rc468-need-referer.
+ *   subtitles: hib-rc332-get-subs (observed files, next to the media, the episode page itself), hibRc440Lang (file name first, RC472/RC475).
+ *   site profiles / player type: HIBRC150 (hib_rc150_registry.js), hibRc78SaveProfile, PLAYER_TYPE_STORED.
+ * ===== */
+console.info('[HIB RC346] background loaded: referrer for embedded players, cached tags, landing confirm');
+
+/* hibV218RestoreUserTab removed: the detection code never activates a tab */
 
 
-/* HIB-V266-NHPLAYER-NETWORK-CAPTURE */
-const hibV266NetworkMedia = new Map();
-
-browser.webRequest.onBeforeRequest.addListener(
-  details => {
-    if (
-      !details ||
-      typeof details.tabId !== "number" ||
-      details.tabId !== hibV218OwnedTabId ||
-      hibV221OwnedHost !== "nhplayer.com"
-    ) {
-      return;
-    }
-
-    try {
-      const url = new URL(details.url);
-
-      if (
-        url.protocol !== "https:" ||
-        !(
-          url.hostname === "1hanime.com" ||
-          url.hostname.endsWith(".1hanime.com")
-        ) ||
-        !/\.mp4$/i.test(url.pathname) ||
-        !url.searchParams.get("verify")
-      ) {
-        return;
-      }
-
-      hibV266NetworkMedia.set(details.tabId, url.href);
-
-      console.log(
-        "[HIB v2.1.5 NHPlayer] NETWORK MP4 CAPTURED:",
-        JSON.stringify({
-          tabId: details.tabId,
-          host: url.hostname,
-          path: url.pathname,
-          hasVerify: true
-        })
-      );
-    }
-    catch (error) {
-      // Ignore unrelated requests.
-    }
-  },
-  {
-    urls: ["https://*.1hanime.com/*"]
-  }
-);
-
-/*
- * HIB-V272-1HANIME-REFERER
- *
- * The signed mp4 URLs that NHPlayer hands out (r2.1hanime.com/...mp4?verify=...)
- * only work when the request comes from NHPlayer or has no referrer. When the
- * Imagus popup plays the same URL from the AnimeID page the browser sends
- * "Referer: https://animeidhentai.com/..." and the host answers 403. Present the
- * referrer NHPlayer itself would send for video file requests to that host, in
- * any tab, so the handed-off URL plays in the popup (or in its own tab).
- */
-const HIB_V272_REFERER = "https://nhplayer.com/";
-const HIB_V272_ORIGIN = "https://nhplayer.com";
-const HIB_V272_MEDIA_PATH = /\.(?:mp4|m4v|webm|m3u8|ts|m4s)$/i;
-
-function hibV272RewriteHeaders(details) {
-  let url;
+// RC293: one owner for HIB-created discovery windows, including about:blank
+// while a window is being navigated. Reservation is synchronous, before
+// windows.create begins, so two entrypoints cannot race through URL inspection.
+const hibRc293Owned = new Map();
+function hibRc293Key(raw){try{return new URL(raw).href;}catch(_){return null;}}
+async function hibRc293Acquire(raw, options) {
+ const key=hibRc293Key(raw);
+ if(!key)throw new Error('RC293 invalid discovery target');
+ const existing=hibRc293Owned.get(key);
+ if(existing){
   try {
-    url = new URL(details.url);
-  }
-  catch (error) {
-    return {};
-  }
-
-  if (
-    url.protocol !== "https:" ||
-    !(
-      url.hostname === "1hanime.com" ||
-      url.hostname.endsWith(".1hanime.com")
-    ) ||
-    !HIB_V272_MEDIA_PATH.test(url.pathname)
-  ) {
-    return {};
-  }
-
-  const headers = (details.requestHeaders || []).slice();
-  let sawReferer = false;
-
-  for (const header of headers) {
-    const name = String(header.name).toLowerCase();
-
-    if (name === "referer") {
-      header.value = HIB_V272_REFERER;
-      sawReferer = true;
-    }
-    else if (name === "origin") {
-      // Only present on cross-origin (CORS) requests.
-      header.value = HIB_V272_ORIGIN;
-    }
-  }
-
-  if (!sawReferer) {
-    headers.push({ name: "Referer", value: HIB_V272_REFERER });
-  }
-
-  return { requestHeaders: headers };
+   const old=await existing;
+   const live=await browser.windows.get(old.id,{populate:true});
+   if(live?.id===old.id && live.tabs?.length){
+    console.info('[HIB RC293]',{status:'WINDOW_REUSED',key,windowId:live.id});
+    return {win:live,reused:true};
+   }
+  }catch(e){console.warn('[HIB RC293]',{status:'STALE_OWNER',key,error:String(e)});}
+  if(hibRc293Owned.get(key)===existing)hibRc293Owned.delete(key);
+ }
+ // Installing the promise in the map happens without an await.
+ const creation=Promise.resolve().then(()=>browser.windows.create(options));
+ hibRc293Owned.set(key,creation);
+ try{
+  const win=await creation;
+  console.info('[HIB RC293]',{status:'WINDOW_CREATED',key,windowId:win.id});
+  return {win,reused:false};
+ }catch(e){if(hibRc293Owned.get(key)===creation)hibRc293Owned.delete(key);throw e;}
 }
-
-browser.webRequest.onBeforeSendHeaders.addListener(
-  hibV272RewriteHeaders,
-  {
-    urls: ["https://*.1hanime.com/*"]
-  },
-  ["blocking", "requestHeaders"]
-);
-
-/* HIB-V267-DIAGNOSTIC-TRACKING */
-let hibV267LastDiagnosticTabId = null;
-
-const hibV218NativeCreate =
-  browser.tabs.create.bind(
-    browser.tabs
-  );
-
-const hibV218NativeRemove =
-  browser.tabs.remove.bind(
-    browser.tabs
-  );
-
-const hibV218NativeUpdate =
-  browser.tabs.update.bind(
-    browser.tabs
-  );
-
-let hibV218Busy =
-  false;
-
-let hibV218OwnedTabId =
-  null;
-
-let hibV218LastUserTabId =
-  null;
-
-let hibV218Watchdog =
-  null;
-
-const hibV218Waiters =
-  [];
-
-const hibV218Children =
-  new Set();
-
-/*
- * HIB-V221-NOOPENER-ORPHAN-GUARD
- *
- * Some image hosts use rel=noopener/window.open in a way that creates a
- * new tab with no openerTabId. Firefox therefore gives the tab no direct
- * parent relationship to the HIB resolver.
- *
- * We record only tabs born while HIB owns a resolver slot. When the root
- * closes, a candidate is removed only if it ended up on the same host as
- * the owned resolver target.
- */
-const hibV221PossibleOrphans =
-  new Set();
-
-let hibV221OwnedHost =
-  "";
-
-let hibV221OwnedWindowId =
-  null;
-
-async function hibV218Acquire() {
-  if (!hibV218Busy) {
-    hibV218Busy =
-      true;
-
-    return;
-  }
-
-  console.log(
-    "[HIB v2.1.5 owner] WAITING:",
-    "queue=" +
-      (hibV218Waiters.length + 1)
-  );
-
-  await new Promise(
-    resolve => {
-      hibV218Waiters.push(
-        resolve
-      );
-    }
-  );
+function hibRc293ForgetWindow(id){
+ for(const [key,promise] of hibRc293Owned){
+  Promise.resolve(promise).then(w=>{if(w?.id===id&&hibRc293Owned.get(key)===promise)hibRc293Owned.delete(key);}).catch(()=>{});
+ }
 }
-
-function hibV218Release(reason) {
-  if (hibV218Watchdog) {
-    clearTimeout(
-      hibV218Watchdog
-    );
-
-    hibV218Watchdog =
-      null;
-  }
-
-  console.log(
-    "[HIB v2.1.5 owner] RELEASE:",
-    hibV218OwnedTabId,
-    reason,
-    "queue=" +
-      hibV218Waiters.length
-  );
-
-  hibV218OwnedTabId =
-    null;
-
-  hibV218Children.clear();
-
-  hibV221PossibleOrphans.clear();
-
-  hibV221OwnedHost =
-    "";
-
-  hibV221OwnedWindowId =
-    null;
-
-  if (hibV218Waiters.length) {
-    const next =
-      hibV218Waiters.shift();
-
-    next();
-
-    return;
-  }
-
-  hibV218Busy =
-    false;
-}
-
-async function hibV218CaptureUserTab() {
-  try {
-    const tabs =
-      await browser.tabs.query({
-        active:
-          true,
-
-        currentWindow:
-          true
-      });
-
-    if (
-      tabs &&
-      tabs.length &&
-      typeof tabs[0].id ===
-        "number"
-    ) {
-      hibV218LastUserTabId =
-        tabs[0].id;
-    }
-  }
-  catch (error) {}
-}
-
-async function hibV218RestoreUserTab() {
-  if (
-    typeof hibV218LastUserTabId !==
-      "number"
-  ) {
-    return;
-  }
-
-  try {
-    await hibV218NativeUpdate(
-      hibV218LastUserTabId,
-      {
-        active:
-          true
-      }
-    );
-  }
-  catch (error) {}
-}
-
-
-/*
- * HIB-V270-NHPLAYER-POPUP-HELPER
- */
-let hibV270CreatingPopup = false;
-let hibV270OriginalWindowId = null;
-
-async function hibV270CreateNHPlayerPopup(safe) {
-  const originalUserTabId = hibV218LastUserTabId;
-  let originalWindowId = null;
-
-  try {
-    if (typeof originalUserTabId === "number") {
-      const userTab = await browser.tabs.get(
-        originalUserTabId
-      );
-
-      originalWindowId = userTab.windowId;
-    }
-  }
-  catch (error) {
-    // The previously focused user tab was closed.
-  }
-
-  const options = {
-    url: "about:blank",
-    type: "popup",
-    focused: false,
-    width: 480,
-    height: 320
-  };
-
-  if (typeof originalWindowId === "number") {
-    try {
-      const originalWindow = await browser.windows.get(
-        originalWindowId
-      );
-
-      if (
-        Number.isFinite(originalWindow.left) &&
-        Number.isFinite(originalWindow.top)
-      ) {
-        options.left = originalWindow.left + 100;
-        options.top = originalWindow.top + 100;
-      }
-    }
-    catch (error) {
-      // Browser chooses popup placement.
-    }
-  }
-
-  hibV270CreatingPopup = true;
-  hibV270OriginalWindowId = originalWindowId;
-
-  let popup = null;
-  let tab = null;
-
-  try {
-    popup = await browser.windows.create(options);
-
-    tab = popup && Array.isArray(popup.tabs)
-      ? popup.tabs[0]
-      : null;
-
-    if (
-      !tab ||
-      typeof tab.id !== "number" ||
-      typeof popup.id !== "number" ||
-      tab.windowId !== popup.id
-    ) {
-      throw new Error(
-        "NHPlayer popup did not return its owned tab"
-      );
-    }
-
-    /*
-     * Establish root ownership before releasing
-     * the popup-creation guard.
-     */
-    hibV218OwnedTabId = tab.id;
-
-    /*
-     * HIB-V271-NHPLAYER-TAB-MUTE
-     * Apply Firefox tab muting BEFORE site navigation.
-     */
-    await browser.tabs.update(tab.id, {
-      muted: true
-    });
-
-    const hibV271TabState = await browser.tabs.get(tab.id);
-
-    if (
-      !hibV271TabState.mutedInfo ||
-      hibV271TabState.mutedInfo.muted !== true
-    ) {
-      throw new Error(
-        "NHPlayer tab mute verification failed"
-      );
-    }
-
-    console.log(
-      "[HIB v2.1.5 NHPlayer] TAB MUTED:",
-      JSON.stringify({
-        tabId: tab.id,
-        muted: true
-      })
-    );
-
-    /*
-     * HIB-V271-MUTED-NAVIGATION
-     */
-    await browser.tabs.update(tab.id, {
-      url: safe.url
-    });
-
-    console.log(
-      "[HIB v2.1.5 NHPlayer] MUTED NAVIGATION STARTED"
-    );
-
-    console.log(
-      "[HIB v2.1.5 NHPlayer] POPUP CREATED:",
-      JSON.stringify({
-        tabId: tab.id,
-        windowId: popup.id,
-        width: 480,
-        height: 320,
-        active: tab.active === true,
-        originalWindowKnown:
-          typeof originalWindowId === "number"
-      })
-    );
-
-    /*
-     * Firefox may still focus a newly created
-     * popup despite focused:false.
-     *
-     * Restore the previous window only if
-     * the resolver popup received focus.
-     */
-    if (
-      typeof originalWindowId === "number" &&
-      originalWindowId !== popup.id
-    ) {
-      try {
-        const focused = await browser.windows.getLastFocused();
-
-        if (
-          focused &&
-          focused.id === popup.id
-        ) {
-          await browser.windows.update(
-            originalWindowId,
-            { focused: true }
-          );
-
-          console.log(
-            "[HIB v2.1.5 NHPlayer] ORIGINAL WINDOW RESTORED"
-          );
-        }
-      }
-      catch (error) {
-        console.warn(
-          "[HIB v2.1.5 NHPlayer] Focus restoration unavailable:",
-          error && error.name
-            ? error.name
-            : "UnknownError"
-        );
-      }
-    }
-
-    return tab;
-  }
-  catch (error) {
-    /*
-     * Close only the popup created by this attempt.
-     * Never close an existing user window.
-     */
-    if (
-      popup &&
-      typeof popup.id === "number"
-    ) {
-      try {
-        await browser.windows.remove(popup.id);
-      }
-      catch (closeError) {}
-    }
-
-    throw error;
-  }
-  finally {
-    hibV218LastUserTabId = originalUserTabId;
-    hibV270CreatingPopup = false;
-    hibV270OriginalWindowId = null;
-  }
-}
-
-async function hibV218CreateOwnedTab(
-  properties
-) {
-  await hibV218Acquire();
-
-  await hibV218CaptureUserTab();
-
-  const safe =
-    Object.assign(
-      {},
-      properties || {},
-      {
-        active:
-          false
-      }
-    );
-
-  let created;
-
-  try {
-    /*
-     * HIB-V270-NHPLAYER-DEDICATED-WINDOW
-     *
-     * Other resolvers retain their previous tab creation.
-     */
-    const hibV270Host = (() => {
-      try {
-        return new URL(safe.url || "").hostname.toLowerCase();
-      }
-      catch (error) {
-        return "";
-      }
-    })();
-
-    created = hibV270Host === "nhplayer.com"
-      ? await hibV270CreateNHPlayerPopup(safe)
-      : await hibV218NativeCreate(safe);
-
-    if (
-      !created ||
-      typeof created.id !==
-        "number"
-    ) {
-      throw new Error(
-        "HIB resolver tab creation returned no numeric ID"
-      );
-    }
-
-    hibV218OwnedTabId =
-      created.id;
-
-    hibV221OwnedWindowId =
-      typeof created.windowId === "number"
-        ? created.windowId
-        : null;
-
-    hibV221OwnedHost =
-      "";
-
-    try {
-      hibV221OwnedHost =
-        new URL(
-          safe.url || ""
-        ).hostname.toLowerCase();
-    }
-    catch (error) {}
-
-    /*
-     * HIB-V267-DIAGNOSTIC-ROTATION
-     * Retain at most one old diagnostic NHPlayer tab.
-     */
-    if (
-      hibV221OwnedHost === "nhplayer.com" &&
-      typeof hibV267LastDiagnosticTabId === "number" &&
-      hibV267LastDiagnosticTabId !== created.id
-    ) {
-      const previousDiagnosticId = hibV267LastDiagnosticTabId;
-      hibV267LastDiagnosticTabId = null;
-
-      try {
-        await hibV218NativeRemove(previousDiagnosticId);
-        console.log(
-          "[HIB v2.1.5 NHPlayer] Previous diagnostic tab closed:",
-          previousDiagnosticId
-        );
-      }
-      catch (error) {
-        // Already closed manually.
-      }
-    }
-
-    console.log(
-      "[HIB v2.1.5 owner] ACQUIRED:",
-      created.id,
-      safe.url || ""
-    );
-
-    console.log(
-      "[HIB v2.1.5 owner] target host:",
-      hibV221OwnedHost || "(none)"
-    );
-
-    /*
-     * Emergency cleanup only.
-     * Individual resolvers should normally close sooner.
-     */
-    hibV218Watchdog =
-      setTimeout(
-        async () => {
-          if (
-            typeof hibV218OwnedTabId !==
-              "number"
-          ) {
-            return;
-          }
-
-          const staleId =
-            hibV218OwnedTabId;
-
-          console.warn(
-            "[HIB v2.1.5 owner] WATCHDOG closing stale resolver:",
-            staleId
-          );
-
-          try {
-            await hibV218NativeRemove(
-              staleId
-            );
-          }
-          catch (error) {
-            hibV218Release(
-              "watchdog tab already gone"
-            );
-          }
-        },
-        /* HIB-V265-NHPLAYER-WATCHDOG-SLACK */
-        hibV221OwnedHost === 'nhplayer.com' ? 120000 : 60000
-      );
-
-    return created;
-  }
-  catch (error) {
-    hibV218Release(
-      "create failure"
-    );
-
-    throw error;
-  }
-}
-
-/*
- * Keep track of the most recent real user tab.
- *
- * Resolver roots and resolver children do not replace this value.
- */
-browser.tabs.onActivated.addListener(
-  activeInfo => {
-    /*
-     * HIB-V270-POPUP-ACTIVATION-GUARD
-     */
-    if (
-      hibV270CreatingPopup &&
-      activeInfo.windowId !== hibV270OriginalWindowId
-    ) {
-      return;
-    }
-    if (
-      typeof activeInfo.tabId !==
-        "number"
-    ) {
-      return;
-    }
-
-    const isResolver =
-      activeInfo.tabId ===
-        hibV218OwnedTabId;
-
-    const isChild =
-      hibV218Children.has(
-        activeInfo.tabId
-      );
-
-    if (
-      !isResolver &&
-      !isChild
-    ) {
-      hibV218LastUserTabId =
-        activeInfo.tabId;
-
-      return;
-    }
-
-
-    /*
-     * HIB-V266-NHPLAYER-MANUAL-INSPECTION
-     * An inactive tab becoming active is a user navigation
-     * we must not immediately undo.
-     */
-    if (
-      isResolver &&
-      hibV221OwnedHost === "nhplayer.com"
-    ) {
-      console.log(
-        "[HIB v2.1.5 owner] NHPlayer tab selected for inspection:",
-        activeInfo.tabId
-      );
-      return;
-    }
-
-    console.warn(
-      "[HIB v2.1.5 owner] resolver attempted focus:",
-      activeInfo.tabId
-    );
-
-    hibV218RestoreUserTab();
-  }
-);
-
-/*
- * Any browser tab spawned by the resolver root is resolver fallout.
- * Close it immediately instead of allowing ad/landing/upload tabs to
- * escape HIB ownership.
- */
-browser.tabs.onCreated.addListener(
-  tab => {
-    if (
-      !hibV218Busy ||
-      typeof tab.id !== "number"
-    ) {
-      return;
-    }
-
-    /*
-     * The root onCreated event may occur before tabs.create() resolves and
-     * before hibV218OwnedTabId is assigned. Do not classify anything until
-     * the owned root ID exists.
-     */
-    if (
-      typeof hibV218OwnedTabId !==
-        "number"
-    ) {
-      return;
-    }
-
-    if (
-      tab.id ===
-        hibV218OwnedTabId
-    ) {
-      return;
-    }
-
-    const sameWindow =
-      hibV221OwnedWindowId === null ||
-      tab.windowId ===
-        hibV221OwnedWindowId;
-
-    const hasOpener =
-      typeof tab.openerTabId ===
-        "number";
-
-    const rootChild =
-      hasOpener &&
-      tab.openerTabId ===
-        hibV218OwnedTabId;
-
-    const descendant =
-      hasOpener &&
-      hibV218Children.has(
-        tab.openerTabId
-      );
-
-    if (
-      rootChild ||
-      descendant
-    ) {
-      hibV218Children.add(
-        tab.id
-      );
-
-      console.warn(
-        "[HIB v2.1.5 owner] BLOCK CHILD:",
-        tab.id,
-        "opener=" +
-          tab.openerTabId,
-        tab.url || ""
-      );
-
-      hibV218NativeRemove(
-        tab.id
-      )
-        .catch(
-          () => {}
-        )
-        .finally(
-          () => {
-            hibV218Children.delete(
-              tab.id
-            );
-
-            hibV218RestoreUserTab();
-          }
-        );
-
-      return;
-    }
-
-    /*
-     * A resolver page can spawn a rel=noopener target. There is no opener
-     * relationship to test, so track it provisionally rather than closing
-     * it immediately.
-     *
-     * It is considered resolver-owned only later, if its final hostname
-     * matches the hostname of the HIB resolver target.
-     */
-    if (
-      sameWindow &&
-      !hasOpener
-    ) {
-      hibV221PossibleOrphans.add(
-        tab.id
-      );
-
-      console.log(
-        "[HIB v2.1.5 owner] TRACK POSSIBLE NO-OPENER CHILD:",
-        tab.id,
-        tab.url || ""
-      );
-    }
-  }
-);
-
-async function hibV221SweepNoOpenerOrphans() {
-  const ownedHost =
-    hibV221OwnedHost;
-
-  const candidates =
-    Array.from(
-      hibV221PossibleOrphans
-    );
-
-  hibV221PossibleOrphans.clear();
-
-  if (
-    !ownedHost ||
-    !candidates.length
-  ) {
-    return;
-  }
-
-  /*
-   * Allow a just-created about:blank/noopener tab enough time to navigate
-   * to its image-host landing URL before classification.
-   */
-  await new Promise(
-    resolve => {
-      setTimeout(
-        resolve,
-        750
-      );
-    }
-  );
-
-  for (
-    const tabId of
-    candidates
-  ) {
-    let tab;
-
-    try {
-      tab =
-        await browser.tabs.get(
-          tabId
-        );
-    }
-    catch (error) {
-      continue;
-    }
-
-    if (
-      !tab ||
-      typeof tab.id !== "number"
-    ) {
-      continue;
-    }
-
-    let host =
-      "";
-
-    try {
-      host =
-        new URL(
-          tab.url || ""
-        ).hostname.toLowerCase();
-    }
-    catch (error) {}
-
-    if (
-      !host ||
-      host !==
-        ownedHost
-    ) {
-      console.log(
-        "[HIB v2.1.5 owner] KEEP unrelated no-opener tab:",
-        tabId,
-        host || tab.url || ""
-      );
-
-      continue;
-    }
-
-    console.warn(
-      "[HIB v2.1.5 owner] CLOSE escaped no-opener resolver tab:",
-      tabId,
-      host
-    );
-
-    try {
-      await hibV218NativeRemove(
-        tabId
-      );
-    }
-    catch (error) {}
-  }
-}
-browser.tabs.onRemoved.addListener(
-  async tabId => {
-    /* HIB-V267-DIAGNOSTIC-CLOSE-TRACKING */
-    if (tabId === hibV267LastDiagnosticTabId) {
-      hibV267LastDiagnosticTabId = null;
-    }
-    hibV266NetworkMedia.delete(tabId);
-    hibV218Children.delete(
-      tabId
-    );
-
-    hibV221PossibleOrphans.delete(
-      tabId
-    );
-
-    if (
-      tabId !==
-        hibV218OwnedTabId
-    ) {
-      return;
-    }
-
-    await hibV221SweepNoOpenerOrphans();
-
-    hibV221OwnedHost =
-      "";
-
-    hibV221OwnedWindowId =
-      null;
-
-    hibV218Release(
-      "owned resolver closed"
-    );
-  }
-);
-
-console.log(
-  "[HIB v2.1.5 owner] global one-tab resolver lock loaded"
-);
-"use strict";
-
-/*
- * Host Imagus Bridge v2.1.3
- *
- * Background resolver architecture:
- *
- * - No generic wrapper resolver.
- * - No page-load resolution.
- * - One requested target URL -> one inflight resolver.
- * - One HIB-created resolver tab per target.
- * - Poll target DOM every 500 ms.
- * - DLsite waits for a stable gallery.
- * - XXPICS waits for a stable real image.
- * - Resolver-owned tabs are always cleaned up.
- */
-
-const dlsiteInflight =
-  new Map();
-
-const dlsiteCache =
-  new Map();
-
-const xxpicsInflight =
-  new Map();
-
-const xxpicsCache =
-  new Map();
+browser.windows.onRemoved.addListener(hibRc293ForgetWindow);
 
 function sleep(ms) {
   return new Promise(
@@ -991,5959 +59,41 @@ function sleep(ms) {
   );
 }
 
-function normalizeDlsiteUrl(value) {
-  let url;
 
-  try {
-    url =
-      new URL(value);
-  }
-  catch (error) {
-    return null;
-  }
-
-  const host =
-    url.hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-
-  if (host !== "dlsite.com") {
-    return null;
-  }
-
-  const match =
-    url.pathname.match(
-      /\/product_id\/(RJ\d+)\.html/i
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  const productId =
-    match[1].toUpperCase();
-
-  return {
-    productId,
-
-    url:
-      "https://www.dlsite.com/maniax/work/=/product_id/" +
-      productId +
-      ".html"
-  };
-}
-
-function sameDlsiteProduct(a, b) {
-  const aa =
-    normalizeDlsiteUrl(a);
-
-  const bb =
-    normalizeDlsiteUrl(b);
-
-  return (
-    aa &&
-    bb &&
-    aa.url === bb.url
-  );
-}
-
-async function snapshotExactDlsiteTabs(
-  pageUrl
-) {
-  const tabs =
-    await browser.tabs.query({});
-
-  const ids =
-    new Set();
-
-  for (
-    const tab of
-    tabs
-  ) {
-    if (
-      typeof tab.id === "number" &&
-      sameDlsiteProduct(
-        tab.url || "",
-        pageUrl
-      )
-    ) {
-      ids.add(
-        tab.id
-      );
-    }
-  }
-
-  return ids;
-}
-
-async function adoptExactDlsiteTab(
-  pageUrl,
-  preexistingIds,
-  ownedIds
-) {
-  const tabs =
-    await browser.tabs.query({});
-
-  const candidates =
-    tabs.filter(tab => {
-      if (
-        typeof tab.id !== "number"
-      ) {
-        return false;
-      }
-
-      if (
-        preexistingIds.has(
-          tab.id
-        )
-      ) {
-        return false;
-      }
-
-      if (
-        ownedIds.has(
-          tab.id
-        )
-      ) {
-        return false;
-      }
-
-      return sameDlsiteProduct(
-        tab.url || "",
-        pageUrl
-      );
-    });
-
-  if (!candidates.length) {
-    return null;
-  }
-
-  candidates.sort(
-    (a, b) =>
-      Number(b.id) -
-      Number(a.id)
-  );
-
-  return candidates[0];
-}
-
-async function inspectDlsite(
-  tabId,
-  productId
-) {
-  const inspectPage = pid => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        return new URL(
-          value,
-          location.href
-        ).href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function filename(value) {
-      try {
-        return new URL(value)
-          .pathname
-          .split("/")
-          .pop()
-          .toUpperCase();
-      }
-      catch (error) {
-        return "";
-      }
-    }
-
-    function validExtension(name) {
-      return (
-        name.endsWith(".JPG") ||
-        name.endsWith(".JPEG") ||
-        name.endsWith(".PNG") ||
-        name.endsWith(".WEBP") ||
-        name.endsWith(".AVIF")
-      );
-    }
-
-    const urls =
-      new Set();
-
-    function add(value) {
-      const url =
-        absolute(value);
-
-      if (!url) {
-        return;
-      }
-
-      if (
-        !/^https:\/\/img\.dlsite\.jp\//i.test(
-          url
-        )
-      ) {
-        return;
-      }
-
-      if (
-        !url
-          .toUpperCase()
-          .includes(
-            pid.toUpperCase() +
-            "_IMG_"
-          )
-      ) {
-        return;
-      }
-
-      urls.add(
-        url
-      );
-    }
-
-    for (
-      const img of
-      document.querySelectorAll(
-        "img"
-      )
-    ) {
-      add(img.currentSrc);
-      add(img.src);
-
-      for (
-        const attr of [
-          "data-src",
-          "data-lazy",
-          "data-lazy-src",
-          "data-original",
-          "data-original-src"
-        ]
-      ) {
-        add(
-          img.getAttribute(
-            attr
-          )
-        );
-      }
-
-      const srcset =
-        img.getAttribute(
-          "srcset"
-        );
-
-      if (srcset) {
-        for (
-          const item of
-          srcset.split(",")
-        ) {
-          add(
-            item
-              .trim()
-              .split(/\s+/)[0]
-          );
-        }
-      }
-    }
-
-    for (
-      const source of
-      document.querySelectorAll(
-        "source"
-      )
-    ) {
-      const srcset =
-        source.getAttribute(
-          "srcset"
-        );
-
-      if (!srcset) {
-        continue;
-      }
-
-      for (
-        const item of
-        srcset.split(",")
-      ) {
-        add(
-          item
-            .trim()
-            .split(/\s+/)[0]
-        );
-      }
-    }
-
-    const productIdUpper =
-      pid.toUpperCase();
-
-    const main =
-      Array.from(urls)
-        .find(url => {
-          const name =
-            filename(url);
-
-          return (
-            name.startsWith(
-              productIdUpper +
-              "_IMG_MAIN."
-            ) &&
-            validExtension(name)
-          );
-        }) ||
-      null;
-
-    const gallery =
-      [];
-
-    if (main) {
-      gallery.push({
-        order:
-          0,
-
-        url:
-          main
-      });
-    }
-
-    const samplePrefix =
-      productIdUpper +
-      "_IMG_SMP";
-
-    for (
-      const url of
-      urls
-    ) {
-      const name =
-        filename(url);
-
-      if (
-        !name.startsWith(
-          samplePrefix
-        ) ||
-        !validExtension(name)
-      ) {
-        continue;
-      }
-
-      const remainder =
-        name.substring(
-          samplePrefix.length
-        );
-
-      const dot =
-        remainder.indexOf(".");
-
-      if (dot <= 0) {
-        continue;
-      }
-
-      const numberText =
-        remainder.substring(
-          0,
-          dot
-        );
-
-      if (
-        !/^\d+$/.test(
-          numberText
-        )
-      ) {
-        continue;
-      }
-
-      gallery.push({
-        order:
-          Number(numberText),
-
-        url
-      });
-    }
-
-    const unique =
-      new Map();
-
-    for (
-      const item of
-      gallery
-    ) {
-      if (
-        !unique.has(
-          item.url
-        )
-      ) {
-        unique.set(
-          item.url,
-          item
-        );
-      }
-    }
-
-    const galleryUrls =
-      Array.from(
-        unique.values()
-      )
-        .sort(
-          (a, b) =>
-            a.order -
-            b.order
-        )
-        .map(
-          item =>
-            item.url
-        );
-
-    return {
-      href:
-        location.href,
-
-      title:
-        document.title || "",
-
-      readyState:
-        document.readyState,
-
-      mainUrl:
-        main,
-
-      galleryUrls,
-
-      imageCount:
-        document.images.length
-    };
-  };
-
-  const code =
-    "(" +
-    inspectPage.toString() +
-    ")(" +
-    JSON.stringify(
-      productId
-    ) +
-    ")";
-
-  const result =
-    await browser.tabs.executeScript(
-      tabId,
-      {
-        runAt:
-          "document_end",
-
-        code
-      }
-    );
-
-  return (
-    result &&
-    result.length
-  )
-    ? result[0]
-    : null;
-}
-
-async function resolveDlsite(
-  pageUrl
-) {
-  const target =
-    normalizeDlsiteUrl(
-      pageUrl
-    );
-
-  if (!target) {
-    throw new Error(
-      "Invalid DLsite URL"
-    );
-  }
-
-  if (
-    dlsiteCache.has(
-      target.url
-    )
-  ) {
-    return dlsiteCache.get(
-      target.url
-    );
-  }
-
-  const preexistingIds =
-    await snapshotExactDlsiteTabs(
-      target.url
-    );
-
-  const created =
-    await hibV218CreateOwnedTab({
-      url:
-        target.url,
-
-      active:
-        false
-    });
-
-  if (
-    !created ||
-    typeof created.id !==
-      "number"
-  ) {
-    throw new Error(
-      "DLsite resolver tab creation failed"
-    );
-  }
-
-  let resolverTabId =
-    created.id;
-
-  const ownedIds =
-    new Set([
-      created.id
-    ]);
-
-  const started =
-    Date.now();
-
-  let lastSignature =
-    "";
-
-  let stablePolls =
-    0;
-
-  let lastInfo =
-    null;
-
-  console.log(
-    "[HIB v2.1.5 background] DLsite polling started:",
-    target.url
-  );
-
-  try {
-    while (
-      Date.now() - started <
-      20000
-    ) {
-      let liveTab =
-        null;
-
-      try {
-        liveTab =
-          await browser.tabs.get(
-            resolverTabId
-          );
-      }
-      catch (error) {}
-
-      if (
-        !liveTab ||
-        !sameDlsiteProduct(
-          liveTab.url || "",
-          target.url
-        )
-      ) {
-        const adopted =
-          await adoptExactDlsiteTab(
-            target.url,
-            preexistingIds,
-            ownedIds
-          );
-
-        if (adopted) {
-          resolverTabId =
-            adopted.id;
-
-          ownedIds.add(
-            adopted.id
-          );
-
-          console.log(
-            "[HIB v2.1.5 background] DLsite adopted replacement tab:",
-            resolverTabId
-          );
-        }
-      }
-
-      try {
-        const info =
-          await inspectDlsite(
-            resolverTabId,
-            target.productId
-          );
-
-        if (info) {
-          lastInfo =
-            info;
-
-          const gallery =
-            Array.isArray(
-              info.galleryUrls
-            )
-              ? info.galleryUrls
-              : [];
-
-          console.log(
-            "[HIB v2.1.5 background] DLsite poll:",
-            Math.floor(
-              (
-                Date.now() -
-                started
-              ) / 500
-            ),
-            "gallery=" +
-              gallery.length,
-            "main=" +
-              Boolean(
-                info.mainUrl
-              )
-          );
-
-          if (
-            info.mainUrl &&
-            gallery.length > 0
-          ) {
-            const signature =
-              JSON.stringify(
-                gallery
-              );
-
-            if (
-              signature ===
-              lastSignature
-            ) {
-              stablePolls +=
-                1;
-            }
-            else {
-              lastSignature =
-                signature;
-
-              stablePolls =
-                1;
-            }
-
-            /*
-             * Three identical 500 ms observations means the actual
-             * gallery has stopped changing for approximately 1.5 s.
-             *
-             * We publish immediately at that point instead of imposing
-             * an arbitrary post-resolution sleep.
-             */
-            if (
-              stablePolls >= 3
-            ) {
-              const result = {
-                ok:
-                  true,
-
-                pageUrl:
-                  target.url,
-
-                productId:
-                  target.productId,
-
-                mainUrl:
-                  info.mainUrl,
-
-                galleryUrls:
-                  gallery,
-
-                pollCount:
-                  Math.floor(
-                    (
-                      Date.now() -
-                      started
-                    ) / 500
-                  ),
-
-                resolverDocumentUrl:
-                  info.href
-              };
-
-              dlsiteCache.set(
-                target.url,
-                result
-              );
-
-              console.log(
-                "[HIB v2.1.5 background] DLsite ACTUAL PICTURES READY:",
-                gallery.length,
-                target.url
-              );
-
-              return result;
-            }
-          }
-          else {
-            lastSignature =
-              "";
-
-            stablePolls =
-              0;
-          }
-        }
-      }
-      catch (error) {
-        console.debug(
-          "[HIB v2.1.5 background] DLsite poll waiting:",
-          String(error)
-        );
-      }
-
-      await sleep(
-        500
-      );
-    }
-
-    throw new Error(
-      "DLsite pictures did not become ready before timeout. Last result: " +
-      JSON.stringify(
-        lastInfo
-      )
-    );
-  }
-  finally {
-    for (
-      const tabId of
-      ownedIds
-    ) {
-      if (
-        preexistingIds.has(
-          tabId
-        )
-      ) {
-        continue;
-      }
-
-      try {
-        await browser.tabs.remove(
-          tabId
-        );
-      }
-      catch (error) {}
-    }
-  }
-}
-
-function normalizeXxPicsUrl(value) {
-  let url;
-
-  try {
-    url =
-      new URL(value);
-  }
-  catch (error) {
-    return null;
-  }
-
-  const host =
-    url.hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-
-  if (host !== "xxpics.org") {
-    return null;
-  }
-
-  const match =
-    url.pathname.match(
-      /^\/cover-(rj\d+)\/?$/i
-    );
-
-  if (!match) {
-    return null;
-  }
-
-  const productId =
-    match[1].toUpperCase();
-
-  return {
-    productId,
-
-    url:
-      "https://xxpics.org/cover-" +
-      productId.toLowerCase() +
-      "/"
-  };
-}
-
-async function inspectXxPics(
-  tabId,
-  productId
-) {
-  const inspectPage = pid => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        const url =
-          new URL(
-            value,
-            location.href
-          );
-
-        if (
-          url.protocol !== "http:" &&
-          url.protocol !== "https:"
-        ) {
-          return null;
-        }
-
-        return url.href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function imageLike(value) {
-      return (
-        /\.(?:jpe?g|png|webp|gif|avif)(?:$|[?#])/i.test(
-          value || ""
-        )
-      );
-    }
-
-    const candidates =
-      new Map();
-
-    function add(
-      value,
-      score,
-      source,
-      width,
-      height
-    ) {
-      const url =
-        absolute(value);
-
-      if (
-        !url ||
-        !imageLike(url)
-      ) {
-        return;
-      }
-
-      let finalScore =
-        Number(score || 0);
-
-      const lower =
-        url.toLowerCase();
-
-      if (
-        lower.includes(
-          pid.toLowerCase()
-        )
-      ) {
-        finalScore +=
-          30000;
-      }
-
-      const w =
-        Number(width || 0);
-
-      const h =
-        Number(height || 0);
-
-      if (
-        w >= 200 ||
-        h >= 200
-      ) {
-        finalScore +=
-          10000;
-      }
-
-      if (
-        w > 0 &&
-        h > 0
-      ) {
-        finalScore +=
-          Math.min(
-            20000,
-            Math.floor(
-              (w * h) /
-              100
-            )
-          );
-      }
-
-      const existing =
-        candidates.get(
-          url
-        );
-
-      if (
-        !existing ||
-        finalScore >
-          existing.score
-      ) {
-        candidates.set(
-          url,
-          {
-            url,
-            score:
-              finalScore,
-
-            source,
-
-            width:
-              w,
-
-            height:
-              h
-          }
-        );
-      }
-    }
-
-    const og =
-      document.querySelector(
-        'meta[property="og:image"]'
-      );
-
-    if (og) {
-      add(
-        og.content,
-        15000,
-        "og:image",
-        0,
-        0
-      );
-    }
-
-    const ogSecure =
-      document.querySelector(
-        'meta[property="og:image:secure_url"]'
-      );
-
-    if (ogSecure) {
-      add(
-        ogSecure.content,
-        15500,
-        "og:image:secure_url",
-        0,
-        0
-      );
-    }
-
-    const twitter =
-      document.querySelector(
-        'meta[name="twitter:image"],meta[property="twitter:image"]'
-      );
-
-    if (twitter) {
-      add(
-        twitter.content,
-        14000,
-        "twitter:image",
-        0,
-        0
-      );
-    }
-
-    for (
-      const img of
-      document.querySelectorAll(
-        "img"
-      )
-    ) {
-      const width =
-        img.naturalWidth ||
-        img.width ||
-        0;
-
-      const height =
-        img.naturalHeight ||
-        img.height ||
-        0;
-
-      add(
-        img.currentSrc,
-        5000,
-        "img.currentSrc",
-        width,
-        height
-      );
-
-      add(
-        img.src,
-        4500,
-        "img.src",
-        width,
-        height
-      );
-
-      for (
-        const attr of [
-          "data-src",
-          "data-lazy-src",
-          "data-original",
-          "data-original-src"
-        ]
-      ) {
-        add(
-          img.getAttribute(
-            attr
-          ),
-          4000,
-          attr,
-          width,
-          height
-        );
-      }
-    }
-
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      if (
-        imageLike(
-          anchor.href
-        )
-      ) {
-        add(
-          anchor.href,
-          6000,
-          "image-anchor",
-          0,
-          0
-        );
-      }
-    }
-
-    const ordered =
-      Array.from(
-        candidates.values()
-      )
-        .sort(
-          (a, b) =>
-            b.score -
-            a.score
-        );
-
-    return {
-      href:
-        location.href,
-
-      title:
-        document.title || "",
-
-      readyState:
-        document.readyState,
-
-      fullUrl:
-        ordered.length
-          ? ordered[0].url
-          : null,
-
-      source:
-        ordered.length
-          ? ordered[0].source
-          : null,
-
-      candidates:
-        ordered.slice(
-          0,
-          10
-        )
-    };
-  };
-
-  const code =
-    "(" +
-    inspectPage.toString() +
-    ")(" +
-    JSON.stringify(
-      productId
-    ) +
-    ")";
-
-  const result =
-    await browser.tabs.executeScript(
-      tabId,
-      {
-        runAt:
-          "document_end",
-
-        code
-      }
-    );
-
-  return (
-    result &&
-    result.length
-  )
-    ? result[0]
-    : null;
-}
-
-async function resolveXxPics(
-  pageUrl
-) {
-  const target =
-    normalizeXxPicsUrl(
-      pageUrl
-    );
-
-  if (!target) {
-    throw new Error(
-      "Invalid XXPICS URL"
-    );
-  }
-
-  if (
-    xxpicsCache.has(
-      target.url
-    )
-  ) {
-    return xxpicsCache.get(
-      target.url
-    );
-  }
-
-  const tab =
-    await hibV218CreateOwnedTab({
-      url:
-        target.url,
-
-      active:
-        false
-    });
-
-  if (
-    !tab ||
-    typeof tab.id !==
-      "number"
-  ) {
-    throw new Error(
-      "XXPICS resolver tab creation failed"
-    );
-  }
-
-  const tabId =
-    tab.id;
-
-  const started =
-    Date.now();
-
-  let lastUrl =
-    "";
-
-  let stablePolls =
-    0;
-
-  let lastInfo =
-    null;
-
-  console.log(
-    "[HIB v2.1.5 background] XXPICS polling started:",
-    target.url
-  );
-
-  try {
-    while (
-      Date.now() - started <
-      15000
-    ) {
-      try {
-        const info =
-          await inspectXxPics(
-            tabId,
-            target.productId
-          );
-
-        if (info) {
-          lastInfo =
-            info;
-
-          console.log(
-            "[HIB v2.1.5 background] XXPICS poll:",
-            Math.floor(
-              (
-                Date.now() -
-                started
-              ) / 500
-            ),
-            info.fullUrl || "waiting"
-          );
-
-          if (
-            info.fullUrl
-          ) {
-            if (
-              info.fullUrl ===
-              lastUrl
-            ) {
-              stablePolls +=
-                1;
-            }
-            else {
-              lastUrl =
-                info.fullUrl;
-
-              stablePolls =
-                1;
-            }
-
-            /*
-             * Two equal observations = stable for approximately 1 second.
-             */
-            if (
-              stablePolls >= 2
-            ) {
-              const result = {
-                ok:
-                  true,
-
-                pageUrl:
-                  target.url,
-
-                productId:
-                  target.productId,
-
-                fullUrl:
-                  info.fullUrl,
-
-                source:
-                  info.source,
-
-                candidates:
-                  info.candidates
-              };
-
-              xxpicsCache.set(
-                target.url,
-                result
-              );
-
-              console.log(
-                "[HIB v2.1.5 background] XXPICS ACTUAL PICTURE READY:",
-                info.fullUrl
-              );
-
-              return result;
-            }
-          }
-          else {
-            lastUrl =
-              "";
-
-            stablePolls =
-              0;
-          }
-        }
-      }
-      catch (error) {
-        console.debug(
-          "[HIB v2.1.5 background] XXPICS poll waiting:",
-          String(error)
-        );
-      }
-
-      await sleep(
-        500
-      );
-    }
-
-    throw new Error(
-      "XXPICS picture did not become ready before timeout. Last result: " +
-      JSON.stringify(
-        lastInfo
-      )
-    );
-  }
-  finally {
-    try {
-      await browser.tabs.remove(
-        tabId
-      );
-    }
-    catch (error) {}
-  }
-}
-
-browser.runtime.onMessage.addListener(
-  message => {
-    if (
-      !message ||
-      message.type !==
-        "hib-v2-resolve-dlsite"
-    ) {
-      return undefined;
-    }
-
-    const target =
-      normalizeDlsiteUrl(
-        message.pageUrl
-      );
-
-    if (!target) {
-      return Promise.resolve({
-        ok:
-          false,
-
-        error:
-          "Rejected non-DLsite URL"
-      });
-    }
-
-    if (
-      dlsiteInflight.has(
-        target.url
-      )
-    ) {
-      return dlsiteInflight.get(
-        target.url
-      );
-    }
-
-    const job =
-      resolveDlsite(
-        target.url
-      )
-        .catch(error => ({
-          ok:
-            false,
-
-          error:
-            String(error)
-        }))
-        .finally(() => {
-          dlsiteInflight.delete(
-            target.url
-          );
-        });
-
-    dlsiteInflight.set(
-      target.url,
-      job
-    );
-
-    return job;
-  }
-);
-
-browser.runtime.onMessage.addListener(
-  message => {
-    if (
-      !message ||
-      message.type !==
-        "hib-v2-resolve-xxpics"
-    ) {
-      return undefined;
-    }
-
-    const target =
-      normalizeXxPicsUrl(
-        message.pageUrl
-      );
-
-    if (!target) {
-      return Promise.resolve({
-        ok:
-          false,
-
-        error:
-          "Rejected non-XXPICS URL"
-      });
-    }
-
-    if (
-      xxpicsInflight.has(
-        target.url
-      )
-    ) {
-      return xxpicsInflight.get(
-        target.url
-      );
-    }
-
-    const job =
-      resolveXxPics(
-        target.url
-      )
-        .catch(error => ({
-          ok:
-            false,
-
-          error:
-            String(error)
-        }))
-        .finally(() => {
-          xxpicsInflight.delete(
-            target.url
-          );
-        });
-
-    xxpicsInflight.set(
-      target.url,
-      job
-    );
-
-    return job;
-  }
-);
-
-console.log(
-  "[HIB v2.1.5 background] loaded"
-);
-/*
- * HIB-V211-CHAIN-BACKGROUND
- *
- * Isolated short-link chain resolver.
- *
- * Initial supported entry point:
- *   ouo.io
- *
- * Supported terminal/image hosts:
- *   TurboImageHost / turboimg.net
- *   imagehost.website
- *   OrangePix
- *   ImgPV
- *
- * Rules:
- * - one original URL -> one inflight job
- * - one HIB-created resolver tab
- * - poll every 500 ms
- * - maximum 5 distinct chain URLs
- * - loop detection
- * - never mutate the Sukebei page from background
- * - only return after a real direct image is found
+/* HIB 1.0.1 RC18: narrow, expiring media-origin hints for the shared player.
+ * Only URLs observed in a real embedded video frame are eligible.
+ * Do not alter requests for other websites or unrelated resources.
  */
-
-const hibV210ChainInflight =
-  new Map();
-
-const hibV210ChainCache =
-  new Map();
-
-function hibV210Sleep(ms) {
-  return new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        ms
-      )
-  );
-}
-
-function hibV210NormalizeOuo(value) {
-  let url;
-
-  try {
-    url =
-      new URL(value);
-  }
-  catch (error) {
-    return null;
-  }
-
-  const host =
-    url.hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-
-  if (host !== "ouo.io") {
-    return null;
-  }
-
-  if (
-    url.protocol !== "https:" &&
-    url.protocol !== "http:"
-  ) {
-    return null;
-  }
-
-  return url.href;
-}
-
-function hibV210IsDirectImage(value) {
-  try {
-    const url =
-      new URL(value);
-
-    return (
-      url.protocol === "https:" &&
-      /\.(?:jpe?g|png|gif|webp|avif|bmp)(?:$|[?#])/i.test(
-        url.pathname +
-        url.search +
-        url.hash
-      )
-    );
-  }
-  catch (error) {
-    return false;
-  }
-}
-
-function hibV210Host(value) {
-  try {
-    return new URL(value)
-      .hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-  }
-  catch (error) {
-    return "";
-  }
-}
-
-function hibV210SupportedDestination(value) {
-  const host =
-    hibV210Host(value);
-
-  if (!host) {
-    return false;
-  }
-
-  return (
-    host === "ouo.io" ||
-    host === "turboimagehost.com" ||
-    host.endsWith(
-      ".turboimg.net"
-    ) ||
-    host === "imagehost.website" ||
-    host.endsWith(
-      ".imagehost.website"
-    ) ||
-    host === "orangepix.is" ||
-    host.endsWith(
-      ".orangepix.is"
-    ) ||
-    host === "imgpv.com" ||
-    host.endsWith(
-      ".imgpv.com"
-    )
-  );
-}
-
-function hibV210TerminalImage(value) {
-  if (
-    !hibV210IsDirectImage(
-      value
-    )
-  ) {
-    return false;
-  }
-
-  const host =
-    hibV210Host(value);
-
-  if (
-    host.endsWith(
-      ".turboimg.net"
-    )
-  ) {
-    return (
-      /\/sp\//i.test(
-        value
-      ) ||
-      /\/i\//i.test(
-        value
-      )
-    );
-  }
-
-  if (
-    host === "imagehost.website" ||
-    host.endsWith(
-      ".imagehost.website"
-    )
-  ) {
-    return (
-      !/\.th\.(?:jpe?g|png|gif|webp)(?:$|[?#])/i.test(
-        value
-      )
-    );
-  }
-
-  if (
-    host === "orangepix.is" ||
-    host.endsWith(
-      ".orangepix.is"
-    )
-  ) {
-    return (
-      !/\.th\.(?:jpe?g|png|gif|webp)(?:$|[?#])/i.test(
-        value
-      )
-    );
-  }
-
-  if (
-    host === "imgpv.com" ||
-    host.endsWith(
-      ".imgpv.com"
-    )
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
-async function hibV210InspectChainTab(
-  tabId
-) {
-  const inspectPage = () => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        return new URL(
-          value,
-          location.href
-        ).href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function directImage(value) {
-      return (
-        /\.(?:jpe?g|png|gif|webp|avif|bmp)(?:$|[?#])/i.test(
-          String(
-            value || ""
-          )
-        )
-      );
-    }
-
-    function host(value) {
-      try {
-        return new URL(value)
-          .hostname
-          .toLowerCase()
-          .replace(/^www\./, "");
-      }
-      catch (error) {
-        return "";
-      }
-    }
-
-    function supported(value) {
-      const h =
-        host(value);
-
-      return (
-        h === "ouo.io" ||
-        h === "turboimagehost.com" ||
-        h.endsWith(".turboimg.net") ||
-        h === "imagehost.website" ||
-        h.endsWith(".imagehost.website") ||
-        h === "orangepix.is" ||
-        h.endsWith(".orangepix.is") ||
-        h === "imgpv.com" ||
-        h.endsWith(".imgpv.com")
-      );
-    }
-
-    const href =
-      location.href;
-
-    const title =
-      document.title || "";
-
-    const challenge =
-      /__cf_chl_|\/cdn-cgi\/challenge-platform/i.test(
-        href
-      ) ||
-      /just a moment|checking your browser|attention required|security verification|verify you are human/i.test(
-        title
-      ) ||
-      !!document.querySelector(
-        'iframe[src*="challenges.cloudflare.com"],' +
-        'input[name="cf-turnstile-response"],' +
-        '#challenge-running,' +
-        '#challenge-stage,' +
-        '.cf-turnstile'
-      );
-
-    /*
-     * Proven TurboImageHost full-image marker.
-     */
-    const turboImage =
-      document.querySelector(
-        "img.uImage"
-      );
-
-    const turboFull =
-      turboImage
-        ? absolute(
-            turboImage.currentSrc ||
-            turboImage.src
-          )
-        : null;
-
-    if (
-      turboFull &&
-      /\/sp\//i.test(
-        turboFull
-      )
-    ) {
-      return {
-        href,
-        title,
-        challenge,
-        fullUrl:
-          turboFull,
-        source:
-          "TurboImageHost img.uImage /sp/",
-        outbound:
-          [],
-        actionAvailable:
-          false
-      };
-    }
-
-    /*
-     * Collect only strong image candidates.
-     */
-    const imageCandidates =
-      [];
-
-    function addImage(
-      value,
-      score,
-      source,
-      width,
-      height
-    ) {
-      const url =
-        absolute(value);
-
-      if (
-        !url ||
-        !directImage(url)
-      ) {
-        return;
-      }
-
-      const h =
-        host(url);
-
-      let accepted =
-        false;
-
-      if (
-        h.endsWith(
-          ".turboimg.net"
-        ) &&
-        /\/sp\//i.test(
-          url
-        )
-      ) {
-        accepted =
-          true;
-        score +=
-          50000;
-      }
-
-      if (
-        (
-          h === "imagehost.website" ||
-          h.endsWith(
-            ".imagehost.website"
-          )
-        ) &&
-        !/\.th\./i.test(
-          url
-        )
-      ) {
-        accepted =
-          true;
-        score +=
-          30000;
-      }
-
-      if (
-        (
-          h === "orangepix.is" ||
-          h.endsWith(
-            ".orangepix.is"
-          )
-        ) &&
-        !/\.th\./i.test(
-          url
-        )
-      ) {
-        accepted =
-          true;
-        score +=
-          30000;
-      }
-
-      if (
-        h === "imgpv.com" ||
-        h.endsWith(
-          ".imgpv.com"
-        )
-      ) {
-        accepted =
-          true;
-        score +=
-          30000;
-      }
-
-      if (!accepted) {
-        return;
-      }
-
-      const w =
-        Number(width || 0);
-
-      const hgt =
-        Number(height || 0);
-
-      if (
-        w >= 300 ||
-        hgt >= 300
-      ) {
-        score +=
-          10000;
-      }
-
-      imageCandidates.push({
-        url,
-        score,
-        source
-      });
-    }
-
-    const og =
-      document.querySelector(
-        'meta[property="og:image"]'
-      );
-
-    if (og) {
-      addImage(
-        og.content,
-        10000,
-        "og:image",
-        0,
-        0
-      );
-    }
-
-    const twitter =
-      document.querySelector(
-        'meta[name="twitter:image"],meta[property="twitter:image"]'
-      );
-
-    if (twitter) {
-      addImage(
-        twitter.content,
-        9000,
-        "twitter:image",
-        0,
-        0
-      );
-    }
-
-    for (
-      const img of
-      document.querySelectorAll(
-        "img"
-      )
-    ) {
-      const width =
-        img.naturalWidth ||
-        img.width ||
-        0;
-
-      const height =
-        img.naturalHeight ||
-        img.height ||
-        0;
-
-      addImage(
-        img.currentSrc,
-        6000,
-        "img.currentSrc",
-        width,
-        height
-      );
-
-      addImage(
-        img.src,
-        5500,
-        "img.src",
-        width,
-        height
-      );
-
-      for (
-        const attr of [
-          "data-src",
-          "data-lazy-src",
-          "data-original",
-          "data-original-src"
-        ]
-      ) {
-        addImage(
-          img.getAttribute(
-            attr
-          ),
-          5000,
-          attr,
-          width,
-          height
-        );
-      }
-    }
-
-    imageCandidates.sort(
-      (a, b) =>
-        b.score -
-        a.score
-    );
-
-    /*
-     * Collect only supported chain destinations.
-     * Ad/tracker destinations are intentionally ignored.
-     */
-    const outbound =
-      [];
-
-    const seen =
-      new Set();
-
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      const url =
-        absolute(
-          anchor.href
-        );
-
-      if (
-        !url ||
-        seen.has(url)
-      ) {
-        continue;
-      }
-
-      if (
-        directImage(url) ||
-        supported(url)
-      ) {
-        seen.add(
-          url
-        );
-
-        outbound.push({
-          url,
-
-          text:
-            (
-              anchor.textContent ||
-              ""
-            )
-              .trim()
-              .slice(
-                0,
-                100
-              )
-        });
-      }
-    }
-
-    /*
-     * OUO often exposes a continuation control only after its timer/
-     * verification state is ready.
-     */
-    let actionAvailable =
-      false;
-
-    const possibleActions =
-      Array.from(
-        document.querySelectorAll(
-          "a,button,input[type=submit]"
-        )
-      );
-
-    for (
-      const element of
-      possibleActions
-    ) {
-      let text =
-        "";
-
-      if (
-        element.tagName ===
-        "INPUT"
-      ) {
-        text =
-          element.value || "";
-      }
-      else {
-        text =
-          element.textContent || "";
-      }
-
-      const idClass =
-        (
-          (element.id || "") +
-          " " +
-          (element.className || "")
-        )
-          .toLowerCase();
-
-      if (
-        /get\s*link|continue|proceed|skip|next|go\s*to|visit\s*link/i.test(
-          text
-        ) ||
-        /btn-main|btn-main-two|get-link|continue-button/i.test(
-          idClass
-        )
-      ) {
-        const rect =
-          element.getBoundingClientRect();
-
-        const style =
-          getComputedStyle(
-            element
-          );
-
-        if (
-          rect.width > 0 &&
-          rect.height > 0 &&
-          style.display !== "none" &&
-          style.visibility !== "hidden"
-        ) {
-          actionAvailable =
-            true;
-
-          break;
-        }
-      }
-    }
-
-    return {
-      href,
-      title,
-      challenge,
-
-      fullUrl:
-        imageCandidates.length
-          ? imageCandidates[0].url
-          : null,
-
-      source:
-        imageCandidates.length
-          ? imageCandidates[0].source
-          : null,
-
-      outbound:
-        outbound.slice(
-          0,
-          20
-        ),
-
-      actionAvailable
-    };
-  };
-
-  const result =
-    await browser.tabs.executeScript(
-      tabId,
-      {
-        runAt:
-          "document_end",
-
-        code:
-          "(" +
-          inspectPage.toString() +
-          ")()"
-      }
-    );
-
-  return (
-    result &&
-    result.length
-  )
-    ? result[0]
-    : null;
-}
-
-async function hibV210AdvanceOuo(
-  tabId
-) {
-  const advance = () => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        return new URL(
-          value,
-          location.href
-        ).href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function host(value) {
-      try {
-        return new URL(value)
-          .hostname
-          .toLowerCase()
-          .replace(/^www\./, "");
-      }
-      catch (error) {
-        return "";
-      }
-    }
-
-    function supported(value) {
-      const h =
-        host(value);
-
-      return (
-        h === "turboimagehost.com" ||
-        h.endsWith(".turboimg.net") ||
-        h === "imagehost.website" ||
-        h.endsWith(".imagehost.website") ||
-        h === "orangepix.is" ||
-        h.endsWith(".orangepix.is") ||
-        h === "imgpv.com" ||
-        h.endsWith(".imgpv.com")
-      );
-    }
-
-    /*
-     * Prefer an already-exposed supported outbound URL.
-     */
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      const url =
-        absolute(
-          anchor.href
-        );
-
-      if (
-        url &&
-        supported(url)
-      ) {
-        location.href =
-          url;
-
-        return {
-          acted:
-            true,
-
-          action:
-            "navigate-supported-link",
-
-          target:
-            url
-        };
-      }
-    }
-
-    /*
-     * Otherwise activate only a visible continuation-looking control.
-     * This happens inside the HIB-owned OUO resolver tab only.
-     */
-    const elements =
-      Array.from(
-        document.querySelectorAll(
-          "a,button,input[type=submit]"
-        )
-      );
-
-    for (
-      const element of
-      elements
-    ) {
-      let text =
-        "";
-
-      if (
-        element.tagName ===
-        "INPUT"
-      ) {
-        text =
-          element.value || "";
-      }
-      else {
-        text =
-          element.textContent || "";
-      }
-
-      const idClass =
-        (
-          (element.id || "") +
-          " " +
-          (element.className || "")
-        )
-          .toLowerCase();
-
-      if (
-        !(
-          /get\s*link|continue|proceed|skip|next|go\s*to|visit\s*link/i.test(
-            text
-          ) ||
-          /btn-main|btn-main-two|get-link|continue-button/i.test(
-            idClass
-          )
-        )
-      ) {
-        continue;
-      }
-
-      const rect =
-        element.getBoundingClientRect();
-
-      const style =
-        getComputedStyle(
-          element
-        );
-
-      if (
-        rect.width <= 0 ||
-        rect.height <= 0 ||
-        style.display === "none" ||
-        style.visibility === "hidden"
-      ) {
-        continue;
-      }
-
-      element.click();
-
-      return {
-        acted:
-          true,
-
-        action:
-          "click-continuation",
-
-        text:
-          text
-            .trim()
-            .slice(
-              0,
-              100
-            )
-      };
-    }
-
-    return {
-      acted:
-        false
-    };
-  };
-
-  const result =
-    await browser.tabs.executeScript(
-      tabId,
-      {
-        runAt:
-          "document_end",
-
-        code:
-          "(" +
-          advance.toString() +
-          ")()"
-      }
-    );
-
-  return (
-    result &&
-    result.length
-  )
-    ? result[0]
-    : null;
-}
-
-async function hibV210SurfaceResolverTab(
-  tabId
-) {
-  /*
-   * HIB-V211-NO-FOCUS
-   *
-   * Resolver tabs must never steal focus from the user's active tab.
-   * This function intentionally performs no activation or window focus.
-   */
-  console.log(
-    "[HIB v2.1.5 chain] resolver remains inactive:",
-    tabId
-  );
-}
-
-async function hibV210ResolveChain(
-  originalUrl
-) {
-  const startUrl =
-    hibV210NormalizeOuo(
-      originalUrl
-    );
-
-  if (!startUrl) {
-    throw new Error(
-      "Rejected non-OUO chain URL"
-    );
-  }
-
-  if (
-    hibV210ChainCache.has(
-      startUrl
-    )
-  ) {
-    return hibV210ChainCache.get(
-      startUrl
-    );
-  }
-
-  const tab =
-    await hibV218CreateOwnedTab({
-      url:
-        startUrl,
-
-      active:
-        false
-    });
-
-  if (
-    !tab ||
-    typeof tab.id !==
-      "number"
-  ) {
-    throw new Error(
-      "OUO resolver tab creation failed"
-    );
-  }
-
-  const tabId =
-    tab.id;
-
-  const started =
-    Date.now();
-
-  const visited =
-    new Set();
-
-  let lastDocumentUrl =
-    "";
-
-  let lastProgressAt =
-    Date.now();
-
-  let surfaced =
-    false;
-
-  let lastActionAt =
-    0;
-
-  let poll =
-    0;
-
-  console.log(
-    "[HIB v2.1.5 chain] START:",
-    startUrl,
-    "tab=" +
-      tabId
-  );
-
-  try {
-    while (
-      Date.now() - started <
-      45000
-    ) {
-      poll +=
-        1;
-
-      let currentTab =
-        null;
-
-      try {
-        currentTab =
-          await browser.tabs.get(
-            tabId
-          );
-      }
-      catch (error) {
-        throw new Error(
-          "Resolver tab disappeared before chain completion"
-        );
-      }
-
-      const tabUrl =
-        currentTab.url || "";
-
-      if (
-        hibV210TerminalImage(
-          tabUrl
-        )
-      ) {
-        const result = {
-          ok:
-            true,
-
-          originalUrl:
-            startUrl,
-
-          fullUrl:
-            tabUrl,
-
-          source:
-            "terminal tab URL",
-
-          chain:
-            Array.from(
-              visited
-            ),
-
-          pollCount:
-            poll
-        };
-
-        hibV210ChainCache.set(
-          startUrl,
-          result
-        );
-
-        console.log(
-          "[HIB v2.1.5 chain] READY from tab URL:",
-          tabUrl
-        );
-
-        return result;
-      }
-
-      let info =
-        null;
-
-      try {
-        info =
-          await hibV210InspectChainTab(
-            tabId
-          );
-      }
-      catch (error) {
-        /*
-         * Expected briefly during redirects/document replacement.
-         */
-      }
-
-      if (info) {
-        const documentUrl =
-          info.href ||
-          tabUrl;
-
-        if (
-          documentUrl &&
-          documentUrl !==
-            lastDocumentUrl
-        ) {
-          if (
-            visited.has(
-              documentUrl
-            )
-          ) {
-            console.log(
-              "[HIB v2.1.5 chain] revisited document:",
-              documentUrl
-            );
-          }
-          else {
-            visited.add(
-              documentUrl
-            );
-
-            lastProgressAt =
-              Date.now();
-
-            console.log(
-              "[HIB v2.1.5 chain] HOP",
-              visited.size,
-              documentUrl
-            );
-          }
-
-          lastDocumentUrl =
-            documentUrl;
-
-          if (
-            visited.size >
-            5
-          ) {
-            throw new Error(
-              "Maximum chain depth of 5 exceeded"
-            );
-          }
-        }
-
-        if (
-          info.fullUrl &&
-          hibV210TerminalImage(
-            info.fullUrl
-          )
-        ) {
-          const result = {
-            ok:
-              true,
-
-            originalUrl:
-              startUrl,
-
-            fullUrl:
-              info.fullUrl,
-
-            source:
-              info.source ||
-              "chain inspector",
-
-            chain:
-              Array.from(
-                visited
-              ),
-
-            pollCount:
-              poll
-          };
-
-          hibV210ChainCache.set(
-            startUrl,
-            result
-          );
-
-          console.log(
-            "[HIB v2.1.5 chain] ACTUAL PICTURE READY:",
-            result
-          );
-
-          return result;
-        }
-
-        /*
-         * If the current page exposes an explicit supported downstream
-         * destination, follow the first one that is not already visited.
-         */
-        if (
-          Array.isArray(
-            info.outbound
-          )
-        ) {
-          const next =
-            info.outbound.find(
-              item =>
-                item &&
-                item.url &&
-                hibV210SupportedDestination(
-                  item.url
-                ) &&
-                !visited.has(
-                  item.url
-                ) &&
-                hibV210Host(
-                  item.url
-                ) !==
-                  "ouo.io"
-            );
-
-          if (next) {
-            console.log(
-              "[HIB v2.1.5 chain] following supported outbound:",
-              next.url
-            );
-
-            visited.add(
-              next.url
-            );
-
-            if (
-              visited.size >
-              5
-            ) {
-              throw new Error(
-                "Maximum chain depth of 5 exceeded"
-              );
-            }
-
-            lastProgressAt =
-              Date.now();
-
-            await browser.tabs.update(
-              tabId,
-              {
-                url:
-                  next.url
-              }
-            );
-
-            await hibV210Sleep(
-              500
-            );
-
-            continue;
-          }
-        }
-
-        /*
-         * Give OUO's own page logic time to expose the continuation.
-         * At most one automatic action is attempted every 2 seconds.
-         */
-        if (
-          hibV210Host(
-            documentUrl
-          ) ===
-            "ouo.io" &&
-          info.actionAvailable &&
-          (
-            Date.now() -
-            lastActionAt
-          ) >=
-            2000
-        ) {
-          lastActionAt =
-            Date.now();
-
-          try {
-            const action =
-              await hibV210AdvanceOuo(
-                tabId
-              );
-
-            if (
-              action &&
-              action.acted
-            ) {
-              console.log(
-                "[HIB v2.1.5 chain] OUO continuation:",
-                action
-              );
-
-              lastProgressAt =
-                Date.now();
-            }
-          }
-          catch (error) {
-            console.debug(
-              "[HIB v2.1.5 chain] OUO continuation not ready:",
-              String(error)
-            );
-          }
-        }
-
-        /*
-         * Cloudflare/verification remains the only reason to make the
-         * HIB-owned resolver tab active.
-         */
-        if (
-          !surfaced &&
-          info.challenge &&
-          (
-            Date.now() -
-            started
-          ) >=
-            1500
-        ) {
-          surfaced =
-            true;
-
-          await hibV210SurfaceResolverTab(
-            tabId
-          );
-        }
-      }
-
-      /*
-       * TurboImageHost historically sometimes stalls without presenting a
-       * recognizable challenge DOM. Surface only after several seconds of
-       * no progress and only if the chain is already on TurboImageHost.
-       */
-      const currentHost =
-        hibV210Host(
-          lastDocumentUrl ||
-          tabUrl
-        );
-
-      if (
-        !surfaced &&
-        currentHost ===
-          "turboimagehost.com" &&
-        (
-          Date.now() -
-          lastProgressAt
-        ) >=
-          4000
-      ) {
-        surfaced =
-          true;
-
-        console.log(
-          "[HIB v2.1.5 chain] TurboImageHost stalled; surfacing resolver tab"
-        );
-
-        await hibV210SurfaceResolverTab(
-          tabId
-        );
-      }
-
-      await hibV210Sleep(
-        500
-      );
-    }
-
-    throw new Error(
-      "Timed out after 45 seconds waiting for chained image resolution"
-    );
-  }
-  finally {
-    try {
-      await browser.tabs.remove(
-        tabId
-      );
-
-      console.log(
-        "[HIB v2.1.5 chain] resolver tab closed:",
-        tabId
-      );
-    }
-    catch (error) {}
-  }
-}
-
-browser.runtime.onMessage.addListener(
-  message => {
-    if (
-      !message ||
-      message.type !==
-        "hib-v2-resolve-chain"
-    ) {
-      return undefined;
-    }
-
-    const startUrl =
-      hibV210NormalizeOuo(
-        message.pageUrl
-      );
-
-    if (!startUrl) {
-      return Promise.resolve({
-        ok:
-          false,
-
-        error:
-          "Rejected non-OUO URL"
-      });
-    }
-
-    if (
-      hibV210ChainInflight.has(
-        startUrl
-      )
-    ) {
-      return hibV210ChainInflight.get(
-        startUrl
-      );
-    }
-
-    const job =
-      hibV210ResolveChain(
-        startUrl
-      )
-        .catch(error => ({
-          ok:
-            false,
-
-          error:
-            String(error)
-        }))
-        .finally(() => {
-          hibV210ChainInflight.delete(
-            startUrl
-          );
-        });
-
-    hibV210ChainInflight.set(
-      startUrl,
-      job
-    );
-
-    return job;
-  }
-);
-
-console.log(
-  "[HIB v2.1.5 chain] isolated OUO resolver loaded"
-);
-/*
- * HIB-V212-IMGPV-BACKGROUND
- *
- * Direct ImgPV wrapper resolver:
- *
- *   imgpv.com/.../picture.jpg.html
- *        ->
- *   sN.imgpv.com/cgi-bin/dl.cgi/.../picture.jpg
- *
- * The content script later converts the CGI URL to a WordPress proxy.
- *
- * - no page-load resolution
- * - one wrapper -> one inactive resolver tab
- * - poll every 500 ms
- * - never focus resolver tab
- */
-
-const hibV212ImgPvInflight =
-  new Map();
-
-const hibV212ImgPvCache =
-  new Map();
-
-function hibV212NormalizeImgPv(value) {
-  let url;
-
-  try {
-    url =
-      new URL(value);
-  }
-  catch (error) {
-    return null;
-  }
-
-  const host =
-    url.hostname
-      .toLowerCase()
-      .replace(/^www\./, "");
-
-  if (
-    host !== "imgpv.com" &&
-    !host.endsWith(".imgpv.com")
-  ) {
-    return null;
-  }
-
-  if (
-    !/\.html(?:$|[?#])/i.test(
-      url.pathname +
-      url.search +
-      url.hash
-    )
-  ) {
-    return null;
-  }
-
-  return url.href;
-}
-
-function hibV212IsImgPvCgi(value) {
-  try {
-    const url =
-      new URL(value);
-
-    const host =
-      url.hostname
-        .toLowerCase();
-
-    return (
-      /(^|\.)imgpv\.com$/i.test(
-        host
-      ) &&
-      /^\/cgi-bin\/dl\.cgi\//i.test(
-        url.pathname
-      )
-    );
-  }
-  catch (error) {
-    return false;
-  }
-}
-
-async function hibV212InspectImgPvTab(
-  tabId
-) {
-  const inspect = () => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        return new URL(
-          value,
-          location.href
-        ).href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function isCgi(value) {
-      if (!value) {
-        return false;
-      }
-
-      try {
-        const url =
-          new URL(
-            value,
-            location.href
-          );
-
-        return (
-          /(^|\.)imgpv\.com$/i.test(
-            url.hostname
-          ) &&
-          /^\/cgi-bin\/dl\.cgi\//i.test(
-            url.pathname
-          )
-        );
-      }
-      catch (error) {
-        return false;
-      }
-    }
-
-    const candidates =
-      [];
-
-    function add(
-      value,
-      source,
-      width,
-      height
-    ) {
-      const url =
-        absolute(value);
-
-      if (
-        !url ||
-        !isCgi(url)
-      ) {
-        return;
-      }
-
-      candidates.push({
-        url,
-        source,
-        width:
-          Number(width || 0),
-        height:
-          Number(height || 0)
-      });
-    }
-
-    for (
-      const img of
-      document.querySelectorAll(
-        "img"
-      )
-    ) {
-      const width =
-        img.naturalWidth ||
-        img.width ||
-        0;
-
-      const height =
-        img.naturalHeight ||
-        img.height ||
-        0;
-
-      add(
-        img.currentSrc,
-        "img.currentSrc",
-        width,
-        height
-      );
-
-      add(
-        img.src,
-        "img.src",
-        width,
-        height
-      );
-
-      for (
-        const attr of [
-          "data-src",
-          "data-original",
-          "data-lazy-src",
-          "data-original-src"
-        ]
-      ) {
-        add(
-          img.getAttribute(
-            attr
-          ),
-          attr,
-          width,
-          height
-        );
-      }
-    }
-
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      add(
-        anchor.href,
-        "a[href]",
-        0,
-        0
-      );
-    }
-
-    const og =
-      document.querySelector(
-        'meta[property="og:image"]'
-      );
-
-    if (og) {
-      add(
-        og.content,
-        "og:image",
-        0,
-        0
-      );
-    }
-
-    candidates.sort(
-      (a, b) => {
-        const areaA =
-          a.width *
-          a.height;
-
-        const areaB =
-          b.width *
-          b.height;
-
-        return areaB - areaA;
-      }
-    );
-
-    return {
-      href:
-        location.href,
-
-      title:
-        document.title || "",
-
-      readyState:
-        document.readyState,
-
-      fullUrl:
-        candidates.length
-          ? candidates[0].url
-          : null,
-
-      source:
-        candidates.length
-          ? candidates[0].source
-          : null,
-
-      candidates:
-        candidates.slice(
-          0,
-          10
-        )
-    };
-  };
-
-  const result =
-    await browser.tabs.executeScript(
-      tabId,
-      {
-        runAt:
-          "document_end",
-
-        code:
-          "(" +
-          inspect.toString() +
-          ")()"
-      }
-    );
-
-  return (
-    result &&
-    result.length
-  )
-    ? result[0]
-    : null;
-}
-
-async function hibV212ResolveImgPv(
-  pageUrl
-) {
-  const target =
-    hibV212NormalizeImgPv(
-      pageUrl
-    );
-
-  if (!target) {
-    throw new Error(
-      "Rejected non-ImgPV wrapper"
-    );
-  }
-
-  if (
-    hibV212ImgPvCache.has(
-      target
-    )
-  ) {
-    return hibV212ImgPvCache.get(
-      target
-    );
-  }
-
-  const tab =
-    await hibV218CreateOwnedTab({
-      url:
-        target,
-
-      active:
-        false
-    });
-
-  if (
-    !tab ||
-    typeof tab.id !==
-      "number"
-  ) {
-    throw new Error(
-      "ImgPV resolver tab creation failed"
-    );
-  }
-
-  const tabId =
-    tab.id;
-
-  const started =
-    Date.now();
-
-  let poll =
-    0;
-
-  let lastInfo =
-    null;
-
-  console.log(
-    "[HIB v2.1.5 ImgPV background] polling started:",
-    target
-  );
-
-  try {
-    while (
-      Date.now() - started <
-      20000
-    ) {
-      poll +=
-        1;
-
-      try {
-        const info =
-          await hibV212InspectImgPvTab(
-            tabId
-          );
-
-        if (info) {
-          lastInfo =
-            info;
-
-          console.log(
-            "[HIB v2.1.5 ImgPV background] poll:",
-            poll,
-            info.fullUrl ||
-              "waiting"
-          );
-
-          if (
-            info.fullUrl &&
-            hibV212IsImgPvCgi(
-              info.fullUrl
-            )
-          ) {
-            const result = {
-              ok:
-                true,
-
-              pageUrl:
-                target,
-
-              fullUrl:
-                info.fullUrl,
-
-              source:
-                info.source,
-
-              pollCount:
-                poll
-            };
-
-            hibV212ImgPvCache.set(
-              target,
-              result
-            );
-
-            console.log(
-              "[HIB v2.1.5 ImgPV background] CGI READY:",
-              info.fullUrl
-            );
-
-            return result;
-          }
-        }
-      }
-      catch (error) {
-        console.debug(
-          "[HIB v2.1.5 ImgPV background] waiting:",
-          String(error)
-        );
-      }
-
-      await sleep(
-        500
-      );
-    }
-
-    throw new Error(
-      "ImgPV CGI URL did not appear before timeout. Last inspection: " +
-      JSON.stringify(
-        lastInfo
-      )
-    );
-  }
-  finally {
-    try {
-      await browser.tabs.remove(
-        tabId
-      );
-    }
-    catch (error) {}
-  }
-}
-
-browser.runtime.onMessage.addListener(
-  message => {
-    if (
-      !message ||
-      message.type !==
-        "hib-v2-resolve-imgpv"
-    ) {
-      return undefined;
-    }
-
-    const target =
-      hibV212NormalizeImgPv(
-        message.pageUrl
-      );
-
-    if (!target) {
-      return Promise.resolve({
-        ok:
-          false,
-
-        error:
-          "Rejected non-ImgPV wrapper"
-      });
-    }
-
-    if (
-      hibV212ImgPvInflight.has(
-        target
-      )
-    ) {
-      return hibV212ImgPvInflight.get(
-        target
-      );
-    }
-
-    const job =
-      hibV212ResolveImgPv(
-        target
-      )
-        .catch(error => ({
-          ok:
-            false,
-
-          error:
-            String(error)
-        }))
-        .finally(() => {
-          hibV212ImgPvInflight.delete(
-            target
-          );
-        });
-
-    hibV212ImgPvInflight.set(
-      target,
-      job
-    );
-
-    return job;
-  }
-);
-
-console.log(
-  "[HIB v2.1.5 ImgPV background] isolated resolver loaded"
-);
-/*
- * HIB-V213-GENERIC-BACKGROUND
- *
- * Last-resort image-wrapper resolver.
- *
- * This does NOT replace specialized handlers.
- *
- * Rules:
- * - one URL -> one inflight job
- * - one inactive resolver tab
- * - never focus the resolver tab
- * - poll every 500 ms
- * - maximum 4 document hops
- * - loop detection
- * - only accept strong image candidates
- * - only follow image-looking outbound links
- */
-
-const hibV213GenericInflight =
-  new Map();
-
-const hibV213GenericCache =
-  new Map();
-
-function hibV213Sleep(ms) {
-  return new Promise(
-    resolve =>
-      setTimeout(
-        resolve,
-        ms
-      )
-  );
-}
-
-function hibV213NormalizeUrl(value) {
-  try {
-    const url =
-      new URL(value);
-
-    if (
-      url.protocol !== "https:" &&
-      url.protocol !== "http:"
-    ) {
-      return null;
-    }
-
-    return url.href;
-  }
-  catch (error) {
-    return null;
-  }
-}
-
-function hibV213DirectImage(value) {
-  try {
-    const url =
-      new URL(value);
-
-    return /\.(?:jpe?g|png|gif|webp|avif|bmp)(?:$|[?#])/i.test(
-      url.pathname +
-      url.search +
-      url.hash
-    );
-  }
-  catch (error) {
-    return false;
-  }
-}
-
-/*
- * HIB-V250-NHPLAYER-DIAGNOSTICS
- *
- * Read-only runtime logging.
- * No changes to resolver ownership, scoring or navigation.
- */
-function hibV250IsNH(value) {
-  try {
-    return /^(?:www\.)?nhplayer\.com$/i.test(
-      new URL(String(value || "")).hostname
-    );
-  }
-  catch (error) {
-    return false;
-  }
-}
-
-function hibV250SafeURL(value) {
-  try {
-    const u = new URL(String(value || ""));
-    return u.origin + u.pathname +
-      (u.search ? "?[QUERY REDACTED]" : "");
-  }
-  catch (error) {
-    return "[unavailable]";
-  }
-}
-
-function hibV250Log(original, label, details) {
-  if (!hibV250IsNH(original)) {
-    return;
-  }
-
-  console.log(
-    "[HIB v2.1.5 NHPlayer] " + label,
-    details
-  );
-}
-async function hibV213InspectGenericTab(
-  tabId
-) {
-  const inspect = () => {
-    function absolute(value) {
-      if (!value) {
-        return null;
-      }
-
-      try {
-        return new URL(
-          value,
-          location.href
-        ).href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    function directImage(value) {
-      if (!value) {
-        return false;
-      }
-
-      try {
-        const url =
-          new URL(
-            value,
-            location.href
-          );
-
-        return /\.(?:jpe?g|png|gif|webp|avif|bmp)(?:$|[?#])/i.test(
-          url.pathname +
-          url.search +
-          url.hash
-        );
-      }
-      catch (error) {
-        return false;
-      }
-    }
-
-    function directMedia(value) {
-      if (!value) {
-        return false;
-      }
-
-      try {
-        const url =
-          new URL(
-            value,
-            location.href
-          );
-
-        return /\.(?:mp4|webm|m4v|mov|m3u8|mpd|mp3|ogg|wav|m4a)(?:$|[?#])/i.test(
-          url.pathname +
-          url.search +
-          url.hash
-        );
-      }
-      catch (error) {
-        return false;
-      }
-    }
-    function badImage(value) {
-      const text =
-        String(value || "")
-          .toLowerCase();
-
-      return (
-        /(?:logo|favicon|avatar|emoji|icon|sprite|tracking|pixel|banner|advert|ads?\/)/i.test(
-          text
-        )
-      );
-    }
-
-    const images =
-      new Map();
-
-    /*
-     * HIB-V223-MEDIA-CANDIDATES
-     *
-     * Real playable media is collected independently from still images.
-     * If playable media exists, it takes precedence over preview/poster
-     * images.
-     */
-    const media =
-      new Map();
-
-    function addMedia(
-      value,
-      baseScore,
-      source
-    ) {
-      const url =
-        absolute(
-          value
-        );
-
-      if (
-        !url ||
-        !directMedia(
-          url
-        )
-      ) {
-        return;
-      }
-
-      const score =
-        Number(
-          baseScore || 0
-        );
-
-      const current =
-        media.get(
-          url
-        );
-
-      if (
-        !current ||
-        score >
-          current.score
-      ) {
-        media.set(
-          url,
-          {
-            url,
-            score,
-            source,
-            width:
-              0,
-            height:
-              0,
-            media:
-              true
-          }
-        );
-      }
-    }
-
-    /*
-     * HIB-V251-NHPLAYER-IFRAME-INIT
-     *
-     * Initialize NHPlayer using its existing Main Player selector.
-     * Keep the original /v/ document in the owned inactive tab.
-     *
-     * The same-origin player iframe exposes the authorized media
-     * through video.currentSrc without requiring playback.
-     *
-     * Never activate the resolver tab or create another tab.
-     */
-    try {
-      const hibV251Page = new URL(location.href);
-
-      const hibV251Eligible =
-        /^(?:www\.)?nhplayer\.com$/i.test(
-          hibV251Page.hostname
-        ) &&
-        /^\/v\/[^/]+\/?$/i.test(
-          hibV251Page.pathname
-        );
-
-      if (hibV251Eligible) {
-        const hibV251Root = document.documentElement;
-        const hibV251Selector =
-          document.querySelector("li[data-id]");
-
-        if (
-          hibV251Root &&
-          hibV251Selector &&
-          document.readyState === "complete" &&
-          !hibV251Root.dataset.hibV251Activated
-        ) {
-          const hibV251Target = new URL(
-            hibV251Selector.getAttribute("data-id"),
-            location.href
-          );
-
-          if (
-            hibV251Target.origin === hibV251Page.origin &&
-            /^\/player\.php$/i.test(
-              hibV251Target.pathname
-            )
-          ) {
-            /*
-             * HIB-V254-NHPLAYER-PAGE-CONTEXT
-             *
-             * Firefox-specific diagnostic.
-             *
-             * Wait until the parent document is complete.
-             * Invoke the existing Main Player selector through
-             * Firefox's unwrapped page object.
-             *
-             * No focus change, direct media play, or new tab.
-             *
-             * This tests whether the page-object execution
-             * path differs from the isolated DOM click.
-             */
-            hibV251Root.dataset.hibV251Activated = "1";
-
-            /*
-             * HIB-V256-NHPLAYER-CONDITIONAL-DOUBLE-CLICK
-             *
-             * NHPlayer-only experiment.
-             *
-             * Dispatch one page-realm synthetic click.
-             * After 300 ms, dispatch a second click only
-             * if no player.php iframe navigation is visible.
-             *
-             * Never focus the tab or initiate playback.
-             */
-
-            const hibV256PageWindow = window.wrappedJSObject;
-
-            if (
-              hibV256PageWindow &&
-              hibV256PageWindow.document &&
-              typeof hibV256PageWindow.MouseEvent === "function"
-            ) {
-              try {
-                const hibV256Document =
-                  hibV256PageWindow.document;
-
-                const hibV256Selector =
-                  hibV256Document.querySelector("li[data-id]");
-
-                const hibV256PlayerStarted = () => {
-                  for (
-                    const frame of
-                    hibV256Document.querySelectorAll("iframe")
-                  ) {
-                    try {
-                      const src =
-                        frame.getAttribute("src") || "";
-
-                      if (
-                        /\/player\.php(?:\?|$)/i.test(src)
-                      ) {
-                        return true;
-                      }
-
-                      const frameLocation =
-                        frame.contentWindow.location.pathname;
-
-                      if (
-                        frameLocation === "/player.php"
-                      ) {
-                        return true;
-                      }
-                    }
-                    catch (error) {
-                      // A cross-origin iframe is not proof
-                      // of NHPlayer initialization.
-                    }
-                  }
-
-                  return false;
-                };
-
-                const hibV256Click = number => {
-                  /* HIB-V257-NHPLAYER-CLONED-MOUSE-EVENT */
-                  if (typeof cloneInto !== "function") {
-                    throw new Error(
-                      "Firefox cloneInto unavailable in extension context"
-                    );
-                  }
-
-                  const hibV257EventOptions = cloneInto(
-                    {
-                      bubbles: true,
-                      cancelable: true,
-                      composed: true,
-                      button: 0
-                    },
-                    hibV256PageWindow
-                  );
-
-                  const event =
-                    new hibV256PageWindow.MouseEvent(
-                      "click",
-                      hibV257EventOptions
-                    );
-
-                  hibV256Selector.dispatchEvent(event);
-
-                  console.log(
-                    "[HIB v2.1.5 NHPlayer] CLICK:",
-                    JSON.stringify({
-                      number: number,
-                      trusted: event.isTrusted,
-                      visibility:
-                        document.visibilityState,
-                      focused:
-                        document.hasFocus(),
-                      playerStarted:
-                        hibV256PlayerStarted()
-                    })
-                  );
-                };
-
-                if (!hibV256Selector) {
-                  console.warn(
-                    "[HIB v2.1.5 NHPlayer] SELECTOR MISSING"
-                  );
-                }
-                else if (hibV256PlayerStarted()) {
-                  console.log(
-                    "[HIB v2.1.5 NHPlayer] PLAYER ALREADY STARTED"
-                  );
-                }
-                else {
-                  hibV256Click(1);
-
-                  setTimeout(() => {
-                    try {
-                      if (
-                        !hibV256Document.documentElement ||
-                        hibV256PlayerStarted()
-                      ) {
-                        console.log(
-                          "[HIB v2.1.5 NHPlayer] SECOND CLICK SKIPPED: player already started"
-                        );
-                        return;
-                      }
-
-                      hibV256Click(2);
-
-                      setTimeout(() => {
-                        console.log(
-                          "[HIB v2.1.5 NHPlayer] FINAL STATE:",
-                          JSON.stringify({
-                            playerStarted:
-                              hibV256PlayerStarted(),
-                            visibility:
-                              document.visibilityState,
-                            focused:
-                              document.hasFocus()
-                          })
-                        );
-                      }, 1000);
-                    }
-                    catch (error) {
-                      console.warn(
-                        "[HIB v2.1.5 NHPlayer] RETRY ERROR:",
-                        String(error)
-                      );
-                    }
-                  }, 300);
-                }
-              }
-              catch (error) {
-                console.warn(
-                  "[HIB v2.1.5 NHPlayer] INIT ERROR:",
-                  String(error)
-                );
-              }
-            }
-            else {
-              console.warn(
-                "[HIB v2.1.5 NHPlayer] PAGE CONTEXT UNAVAILABLE"
-              );
-            }
-          }
-        }
-
-        for (
-          const hibV251Frame of
-          document.querySelectorAll("iframe")
-        ) {
-          try {
-            const hibV251Doc =
-              hibV251Frame.contentDocument;
-
-            if (
-              !hibV251Doc ||
-              hibV251Doc.location.pathname !==
-                "/player.php"
-            ) {
-              continue;
-            }
-
-            for (
-              const hibV251Video of
-              hibV251Doc.querySelectorAll("video")
-            ) {
-              const hibV251Media =
-                hibV251Video.currentSrc ||
-                hibV251Video.src;
-
-              if (
-                hibV251Media &&
-                /[?&]verify=/i.test(
-                  hibV251Media
-                ) &&
-                directMedia(hibV251Media)
-              ) {
-                addMedia(
-                  hibV251Media,
-                  90000,
-                  "NHPlayer verified iframe video"
-                );
-              }
-            }
-          }
-          catch (error) {
-            // The frame may still be navigating.
-          }
-        }
-      }
-    }
-    catch (error) {
-      console.log(
-        "[HIB v2.1.5 NHPlayer] INITIALIZATION ERROR:",
-        error && error.name ? error.name : "Error"
-      );
-    }
-    function addImage(
-      value,
-      baseScore,
-      source,
-      width,
-      height
-    ) {
-      const url =
-        absolute(value);
-
-      if (
-        !url ||
-        !directImage(url) ||
-        badImage(url)
-      ) {
-        return;
-      }
-
-      const w =
-        Number(width || 0);
-
-      const h =
-        Number(height || 0);
-
-      let score =
-        Number(baseScore || 0);
-
-      if (
-        w >= 300 ||
-        h >= 300
-      ) {
-        score +=
-          6000;
-      }
-
-      if (
-        w > 0 &&
-        h > 0
-      ) {
-        score +=
-          Math.min(
-            18000,
-            Math.floor(
-              (w * h) /
-              100
-            )
-          );
-      }
-
-      if (
-        /(?:full|original|large|source|upload|image|photo|picture)/i.test(
-          url
-        )
-      ) {
-        score +=
-          2500;
-      }
-
-      const current =
-        images.get(url);
-
-      if (
-        !current ||
-        score >
-          current.score
-      ) {
-        images.set(
-          url,
-          {
-            url,
-            score,
-            source,
-            width:
-              w,
-            height:
-              h
-          }
-        );
-      }
-    }
-
-    for (
-      const video of
-      document.querySelectorAll(
-        "video"
-      )
-    ) {
-      addMedia(
-        video.currentSrc,
-        70000,
-        "video.currentSrc"
-      );
-
-      addMedia(
-        video.src ||
-          video.getAttribute(
-            "src"
-          ),
-        69000,
-        "video.src"
-      );
-
-      for (
-        const source of
-        video.querySelectorAll(
-          "source[src]"
-        )
-      ) {
-        addMedia(
-          source.src ||
-            source.getAttribute(
-              "src"
-            ),
-          68000,
-          "video source"
-        );
-      }
-    }
-
-    for (
-      const audio of
-      document.querySelectorAll(
-        "audio"
-      )
-    ) {
-      addMedia(
-        audio.currentSrc,
-        67000,
-        "audio.currentSrc"
-      );
-
-      addMedia(
-        audio.src ||
-          audio.getAttribute(
-            "src"
-          ),
-        66000,
-        "audio.src"
-      );
-
-      for (
-        const source of
-        audio.querySelectorAll(
-          "source[src]"
-        )
-      ) {
-        addMedia(
-          source.src ||
-            source.getAttribute(
-              "src"
-            ),
-          65000,
-          "audio source"
-        );
-      }
-    }
-
-    for (
-      const source of
-      document.querySelectorAll(
-        "source[src]"
-      )
-    ) {
-      addMedia(
-        source.src ||
-          source.getAttribute(
-            "src"
-          ),
-        64000,
-        "source.src"
-      );
-    }
-
-    const mediaMetaSelectors =
-      [
-        [
-          'meta[property="og:video"]',
-          63000,
-          "og:video"
-        ],
-        [
-          'meta[property="og:video:url"]',
-          63000,
-          "og:video:url"
-        ],
-        [
-          'meta[property="og:video:secure_url"]',
-          63500,
-          "og:video:secure_url"
-        ],
-        [
-          'meta[name="twitter:player:stream"]',
-          62500,
-          "twitter:player:stream"
-        ],
-
-        /*
-         * Sankaku video posts currently expose their signed MP4 URL
-         * through og:image. addMedia() accepts it only when it is truly
-         * a media URL, so ordinary JPEG/PNG/AVIF og:image values are not
-         * affected.
-         */
-        [
-          'meta[property="og:image"]',
-          62000,
-          "og:image media"
-        ]
-      ];
-
-    for (
-      const entry of
-      mediaMetaSelectors
-    ) {
-      const node =
-        document.querySelector(
-          entry[0]
-        );
-
-      if (!node) {
-        continue;
-      }
-
-      addMedia(
-        node.content,
-        entry[1],
-        entry[2]
-      );
-    }
-
-    /*
-     * HIB-V248-ENCODED-PLAYER-MEDIA
-     *
-     * Read explicit player.php?vid=Base64 media declarations.
-     * Submit decoded media to the existing generic media pipeline.
-     *
-     * No additional tabs, clicks, or network interception.
-     */
-    function hibV248DecodePlayerMedia(raw) {
-      if (!raw || typeof raw !== "string") {
-        return null;
-      }
-
-      try {
-        const wrapper = new URL(raw, location.href);
-
-        if (!/^https?:$/.test(wrapper.protocol)) {
-          return null;
-        }
-
-        if (!/\/player\.php$/i.test(wrapper.pathname)) {
-          return null;
-        }
-
-        const encoded = wrapper.searchParams.get("vid");
-
-        if (!encoded || encoded.length > 16384) {
-          return null;
-        }
-
-        const normalized = encoded.trim()
-          .replace(/-/g, "+")
-          .replace(/_/g, "/");
-
-        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
-          return null;
-        }
-
-        const decoded = atob(normalized);
-        const separator = decoded.indexOf("|");
-
-        const first = (
-          separator >= 0
-            ? decoded.slice(0, separator)
-            : decoded
-        ).trim();
-
-        if (!first || first.length > 8192) {
-          return null;
-        }
-
-        const mediaUrl = new URL(first);
-
-        if (!/^https?:$/.test(mediaUrl.protocol)) {
-          return null;
-        }
-
-        if (!directMedia(mediaUrl.href)) {
-          return null;
-        }
-
-        return mediaUrl.href;
-      }
-      catch (error) {
-        return null;
-      }
-    }
-
-    const hibV248Attributes = [
-      "data-id",
-      "data-url",
-      "data-src",
-      "data-video",
-      "data-stream"
-    ];
-
-    for (const attribute of hibV248Attributes) {
-      const selector = "[" + attribute + "]";
-
-      for (const element of document.querySelectorAll(selector)) {
-        const raw = element.getAttribute(attribute);
-        const decoded = hibV248DecodePlayerMedia(raw);
-
-        if (!decoded) {
-          continue;
-        }
-
-        /*
-         * HIB-V249-NHPLAYER-VERIFIED-WRAPPER
-         *
-         * NHPlayer's /v/ page exposes a Base64 declaration whose
-         * first field is an unsigned MP4.
-         *
-         * Do not promote that MP4 into the media candidate list.
-         *
-         * The existing v2.1.3 outbound resolver will instead follow
-         * the data-id player.php wrapper using its one owned tab.
-         *
-         * player.php initializes JWPlayer and exposes the authorized
-         * MP4 with its verify query through video.currentSrc.
-         *
-         * This exception applies only to NHPlayer /v/ documents.
-         * Generic encoded-player handling remains unchanged elsewhere.
-         */
-        if (
-          /^(?:www\.)?nhplayer\.com$/i.test(location.hostname) &&
-          /^\/v\/[^/]+\/?$/i.test(location.pathname) &&
-          /^\/player\.php$/i.test(
-            new URL(raw, location.href).pathname
-          )
-        ) {
-          continue;
-        }
-
-        addMedia(
-          decoded,
-          72000,
-          "encoded player vid"
-        );
-      }
-    }
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      addMedia(
-        anchor.href,
-        60000,
-        "a[href=media]"
-      );
-    }
-    const og =
-      document.querySelector(
-        'meta[property="og:image"]'
-      );
-
-    if (og) {
-      addImage(
-        og.content,
-        18000,
-        "og:image",
-        0,
-        0
-      );
-    }
-
-    const ogSecure =
-      document.querySelector(
-        'meta[property="og:image:secure_url"]'
-      );
-
-    if (ogSecure) {
-      addImage(
-        ogSecure.content,
-        18500,
-        "og:image:secure_url",
-        0,
-        0
-      );
-    }
-
-    const twitter =
-      document.querySelector(
-        'meta[name="twitter:image"],meta[property="twitter:image"]'
-      );
-
-    if (twitter) {
-      addImage(
-        twitter.content,
-        16000,
-        "twitter:image",
-        0,
-        0
-      );
-    }
-
-    for (
-      const img of
-      document.querySelectorAll(
-        "img"
-      )
-    ) {
-      const width =
-        img.naturalWidth ||
-        img.width ||
-        0;
-
-      const height =
-        img.naturalHeight ||
-        img.height ||
-        0;
-
-      addImage(
-        img.currentSrc,
-        5000,
-        "img.currentSrc",
-        width,
-        height
-      );
-
-      addImage(
-        img.src,
-        4500,
-        "img.src",
-        width,
-        height
-      );
-
-      for (
-        const attr of [
-          "data-src",
-          "data-lazy-src",
-          "data-original",
-          "data-original-src",
-          "data-image",
-          "data-full",
-          "data-fullsrc"
-        ]
-      ) {
-        addImage(
-          img.getAttribute(
-            attr
-          ),
-          4800,
-          "img." +
-            attr,
-          width,
-          height
-        );
-      }
-
-      const srcset =
-        img.getAttribute(
-          "srcset"
-        );
-
-      if (srcset) {
-        for (
-          const item of
-          srcset.split(",")
-        ) {
-          addImage(
-            item
-              .trim()
-              .split(/\s+/)[0],
-            5000,
-            "img.srcset",
-            width,
-            height
-          );
-        }
-      }
-    }
-
-    /*
-     * Full image links are usually stronger than arbitrary DOM images.
-     */
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      if (
-        directImage(
-          anchor.href
-        )
-      ) {
-        addImage(
-          anchor.href,
-          15000,
-          "a[href=image]",
-          0,
-          0
-        );
-      }
-    }
-
-    const orderedMedia =
-      Array.from(
-        media.values()
-      )
-        .sort(
-          (a, b) =>
-            b.score -
-            a.score
-        );
-
-    const orderedImages =
-      Array.from(
-        images.values()
-      )
-        .sort(
-          (a, b) =>
-            b.score -
-            a.score
-        );
-
-    /*
-     * Collect plausible image-wrapper continuation links.
-     *
-     * We deliberately do not follow every link on an unknown page.
-     */
-    const outbound =
-      [];
-
-    const seenOutbound =
-      new Set();
-
-    for (
-      const anchor of
-      document.querySelectorAll(
-        "a[href]"
-      )
-    ) {
-      const url =
-        absolute(
-          anchor.href
-        );
-
-      if (
-        !url ||
-        seenOutbound.has(
-          url
-        ) ||
-        url ===
-          location.href
-      ) {
-        continue;
-      }
-
-      let score =
-        0;
-
-      const text =
-        (
-          anchor.textContent ||
-          ""
-        )
-          .trim()
-          .toLowerCase();
-
-      const pathText =
-        url.toLowerCase();
-
-      if (
-        directImage(url)
-      ) {
-        score +=
-          20000;
-      }
-
-      if (
-        anchor.querySelector(
-          "img"
-        )
-      ) {
-        score +=
-          5000;
-      }
-
-      if (
-        /full\s*(?:size|image)|original|view\s*(?:image|photo)|open\s*(?:image|photo)|download\s*(?:image|photo)/i.test(
-          text
-        )
-      ) {
-        score +=
-          5000;
-      }
-
-      if (
-        /\.(?:jpe?g|png|gif|webp|avif|bmp)\.(?:html?|php)(?:$|[?#])/i.test(
-          pathText
-        )
-      ) {
-        score +=
-          4500;
-      }
-
-      if (
-        /\/(?:image|images|img|photo|picture|pic|view|full|original|gallery|cover|p)\//i.test(
-          pathText
-        )
-      ) {
-        score +=
-          2500;
-      }
-
-      /*
-       * Require a meaningful image signal.
-       */
-      if (
-        score <
-        2500
-      ) {
-        continue;
-      }
-
-      seenOutbound.add(
-        url
-      );
-
-      outbound.push({
-        url,
-        score,
-        text:
-          text.slice(
-            0,
-            100
-          )
-      });
-    }
-
-    /*
-     * HIB-V247-DATA-ID-MEDIA-WRAPPER
-     *
-     * Some media hosts expose their playable continuation through a
-     * JavaScript-controlled data-* attribute rather than an <a href>.
-     *
-     * NHPlayer is a concrete example:
-     *
-     *   <li data-id="/player.php?vid=...">
-     *
-     * Do not decode the embedded media token here. The player.php wrapper
-     * may contain expiry/signature information required by the host.
-     *
-     * Instead, treat an HTTP(S) data-id URL containing a player-style path
-     * and a media token parameter as a strong wrapper continuation.
-     *
-     * The existing generic resolver will navigate its one owned inactive
-     * resolver tab to that wrapper and then inspect the resulting document
-     * for real video/source/meta media.
-     */
-    for (
-      const element of
-      document.querySelectorAll(
-        '[data-id]'
-      )
-    ) {
-      const raw =
-        element.getAttribute(
-          'data-id'
-        );
-
-      if (!raw) {
-        continue;
-      }
-
-      const url =
-        absolute(
-          raw
-        );
-
-      if (
-        !url ||
-        seenOutbound.has(
-          url
-        ) ||
-        url ===
-          location.href
-      ) {
-        continue;
-      }
-
-      let parsed =
-        null;
-
-      try {
-        parsed =
-          new URL(
-            url
-          );
-      }
-      catch (error) {
-        parsed =
-          null;
-      }
-
-      if (!parsed) {
-        continue;
-      }
-
-      const path =
-        parsed.pathname
-          .toLowerCase();
-
-      const hasMediaToken =
-        parsed.searchParams.has(
-          'vid'
-        ) ||
-        parsed.searchParams.has(
-          'video'
-        ) ||
-        parsed.searchParams.has(
-          'media'
-        ) ||
-        parsed.searchParams.has(
-          'file'
-        ) ||
-        parsed.searchParams.has(
-          'source'
-        );
-
-      const playerLike =
-        /(?:^|\/)(?:player|embed|watch)(?:\.php)?(?:\/|$)/i.test(
-          path
-        );
-
-      if (
-        !playerLike ||
-        !hasMediaToken
-      ) {
-        continue;
-      }
-
-      seenOutbound.add(
-        url
-      );
-
-      outbound.push({
-        url,
-
-        score:
-          60000,
-
-        text:
-          'data-id media wrapper'
-      });
-    }
-
-    /*
-     * HIB-V251-NHPLAYER-IFRAME-OUTBOUND-HOLD
-     *
-     * Once normal NHPlayer iframe initialization has begun,
-     * remain on /v/ and allow the iframe media to become ready.
-     * Do not replace the parent with player.php.
-     */
-    if (
-      /^(?:www\.)?nhplayer\.com$/i.test(
-        location.hostname
-      ) &&
-      /^\/v\/[^/]+\/?$/i.test(
-        location.pathname
-      ) &&
-      document.documentElement &&
-      document.documentElement.dataset.hibV251Activated
-    ) {
-      outbound.length = 0;
-    }
-    outbound.sort(
-      (a, b) =>
-        b.score -
-        a.score
-    );
-
-    const challenge =
-      /__cf_chl_|\/cdn-cgi\/challenge-platform/i.test(
-        location.href
-      ) ||
-      /just a moment|checking your browser|attention required|security verification|verify you are human/i.test(
-        document.title || ""
-      ) ||
-      !!document.querySelector(
-        'iframe[src*="challenges.cloudflare.com"],' +
-        'input[name="cf-turnstile-response"],' +
-        '#challenge-running,' +
-        '#challenge-stage,' +
-        '.cf-turnstile'
-      );
-
-    return {
-      href:
-        location.href,
-
-      title:
-        document.title || "",
-
-      readyState:
-        document.readyState,
-
-      challenge,
-
-      best:
-        orderedMedia.length
-          ? orderedMedia[0]
-          : (
-              orderedImages.length
-                ? orderedImages[0]
-                : null
-            ),
-
-      media:
-        orderedMedia.slice(
-          0,
-          12
-        ),
-
-      images:
-        orderedImages.slice(
-          0,
-          12
-        ),
-
-      outbound:
-        outbound.slice(
-          0,
-          12
-        )
-    };
-  };
-
-  /*
-   * HIB-V258-NHPLAYER-FRAME-MEDIA
-   *
-   * Inspect all frames only for NHPlayer.
-   * Select the /player.php frame only when it exposes
-   * a signed MP4. Other sites retain result[0].
-   */
-  const hibV258Tab = await browser.tabs.get(tabId);
-  const hibV258IsNH = !!(
-    hibV258Tab &&
-    hibV250IsNH(hibV258Tab.url || "")
-  );
-
-  const result = await browser.tabs.executeScript(
-    tabId,
-    {
-      runAt: "document_end",
-      allFrames: hibV258IsNH,
-      code: "(" + inspect.toString() + ")()"
-    }
-  );
-
-  if (!result || !result.length) {
-    return null;
-  }
-
-  /*
-   * HIB-V259-NHPLAYER-FRAME-DIAGNOSTICS
-   *
-   * NHPlayer-only frame inventory and verified MP4 selection.
-   * Retains generic top-level behavior for other hosts.
-   * Never log the full signed media URL.
-   */
-  if (hibV258IsNH) {
-    const hibV259Frames = [];
-
-    let hibV259Selected = null;
-
-    for (const entry of result) {
-      if (!entry || typeof entry.href !== "string") {
-        hibV259Frames.push({
-          frame: "[invalid]",
-          mediaCount: 0,
-          hasVerify: false
-        });
-        continue;
-      }
-
-      let hibV259Path = "[invalid-url]";
-      let hibV259PlayerFrame = false;
-
-      try {
-        const hibV259URL = new URL(entry.href);
-
-        hibV259Path = hibV259URL.pathname;
-
-        hibV259PlayerFrame = (
-          hibV259URL.protocol === "https:" &&
-          hibV259URL.hostname === "nhplayer.com" &&
-          hibV259URL.pathname === "/player.php"
-        );
-      }
-      catch (error) {
-        // Ignore malformed document URLs.
-      }
-
-      const hibV259Media =
-        Array.isArray(entry.media) ? entry.media : [];
-
-      let hibV259Signed = null;
-
-      if (hibV259PlayerFrame) {
-        for (const candidate of hibV259Media) {
-          if (!candidate || typeof candidate.url !== "string") {
-            continue;
-          }
-
-          try {
-            const hibV259MediaURL = new URL(candidate.url);
-
-            if (
-              hibV259MediaURL.protocol === "https:" &&
-              /\.mp4$/i.test(hibV259MediaURL.pathname) &&
-              hibV259MediaURL.searchParams.has("verify") &&
-              hibV259MediaURL.searchParams.get("verify")
-            ) {
-              if (
-                !hibV259Signed ||
-                Number(candidate.score || 0) >
-                  Number(hibV259Signed.score || 0)
-              ) {
-                hibV259Signed = candidate;
-              }
-            }
-          }
-          catch (error) {
-            // Ignore malformed media candidates.
-          }
-        }
-      }
-
-      hibV259Frames.push({
-        frame: hibV259Path,
-        ready: entry.readyState || "unknown",
-        mediaCount: hibV259Media.length,
-        hasVerify: !!hibV259Signed
-      });
-
-      if (hibV259Signed && !hibV259Selected) {
-        entry.best = hibV259Signed;
-        hibV259Selected = entry;
-      }
-    }
-
-    const hibV259Signature =
-      JSON.stringify(hibV259Frames);
-
-    if (
-      typeof hibV213InspectGenericTab.hibV259LastSignature !==
-        "string" ||
-      hibV213InspectGenericTab.hibV259LastSignature !==
-        hibV259Signature
-    ) {
-      hibV213InspectGenericTab.hibV259LastSignature =
-        hibV259Signature;
-
-      console.log(
-        "[HIB v2.1.5 NHPlayer] FRAME STATE:",
-        hibV259Signature
-      );
-    }
-
-    if (hibV259Selected) {
-      const hibV259URL = new URL(
-        hibV259Selected.best.url
-      );
-
-      console.log(
-        "[HIB v2.1.5 NHPlayer] VERIFIED FRAME MEDIA:",
-        JSON.stringify({
-          frame: "/player.php",
-          host: hibV259URL.hostname,
-          path: hibV259URL.pathname,
-          verified: true,
-          score: hibV259Selected.best.score,
-          source: hibV259Selected.best.source
-        })
-      );
-
-      /* HIB-V277-NHPLAYER-SELECTED-FRAME-SUBTITLE */
-      hibV259Selected.subtitleURL = null;
-
-      try {
-        const playerPage = new URL(hibV259Selected.href);
-
-        if (
-          playerPage.protocol === "https:" &&
-          playerPage.hostname === "nhplayer.com" &&
-          playerPage.pathname === "/player.php"
-        ) {
-          const encoded = playerPage.searchParams.get("s");
-
-          if (encoded) {
-            const decoded = atob(encoded);
-            const subtitle = new URL(decoded);
-
-            if (
-              subtitle.protocol === "https:" &&
-              /\.(srt|vtt)$/i.test(subtitle.pathname) &&
-              !subtitle.username &&
-              !subtitle.password
-            ) {
-              hibV259Selected.subtitleURL = subtitle.href;
-            }
-          }
-        }
-      } catch (error) {
-        // Subtitle failures must never block MP4 playback.
-      }
-
-      console.log(
-        "[HIB v2.1.5 NHPlayer] SELECTED FRAME SUBTITLE:",
-        JSON.stringify({
-          found: !!hibV259Selected.subtitleURL,
-          format: hibV259Selected.subtitleURL
-            ? new URL(hibV259Selected.subtitleURL)
-                .pathname.split(".").pop().toLowerCase()
-            : null
-        })
-      );
-      return hibV259Selected;
-    }
-  }
-
-  /*
-   * HIB-V260-NHPLAYER-DIRECT-MEDIA
-   *
-   * NHPlayer-only direct iframe fallback.
-   * Preserve v2.1.3 generic result selection.
-   * Never activate, focus, or play media.
-   */
-  if (hibV258IsNH) {
-    try {
-      const hibV260Probe = () => {
-        let page;
-
-        try {
-          page = new URL(location.href);
-        }
-        catch (error) {
-          return null;
-        }
-
-        if (
-          page.protocol !== "https:" ||
-          page.hostname !== "nhplayer.com" ||
-          page.pathname !== "/player.php"
-        ) {
-          return null;
-        }
-
-
-        /*
-         * HIB-V268-NHPLAYER-SILENT-PLAYBACK
-         *
-         * Muted playback initialization.
-         * One attempt per video DOM element.
-         */
-        function hibV268TrySilentPlayback(video) {
-          if (!video || video.nodeName !== "VIDEO") {
-            return;
-          }
-
-          if (
-            video.hasAttribute(
-              "data-hib-v268-silent-attempt"
-            )
-          ) {
-            return;
-          }
-
-          video.setAttribute(
-            "data-hib-v268-silent-attempt",
-            "started"
-          );
-
-          try {
-            video.muted = true;
-            video.defaultMuted = true;
-            video.volume = 0;
-            video.autoplay = true;
-            video.setAttribute("muted", "");
-            video.setAttribute("autoplay", "");
-
-            console.log(
-              "[HIB v2.1.5 NHPlayer] SILENT PLAY REQUEST:",
-              JSON.stringify({
-                visibility: document.visibilityState,
-                focused: document.hasFocus(),
-                pausedBeforePlay: video.paused,
-                muted: video.muted,
-                readyState: video.readyState
-              })
-            );
-
-            const result = video.play();
-
-            if (
-              result &&
-              typeof result.then === "function"
-            ) {
-              result.then(
-                () => {
-                  video.setAttribute(
-                    "data-hib-v268-silent-attempt",
-                    "accepted"
-                  );
-
-                  console.log(
-                    "[HIB v2.1.5 NHPlayer] SILENT PLAY ACCEPTED:",
-                    JSON.stringify({
-                      visibility: document.visibilityState,
-                      focused: document.hasFocus(),
-                      paused: video.paused,
-                      muted: video.muted,
-                      readyState: video.readyState,
-                      hasCurrentSrc: !!video.currentSrc
-                    })
-                  );
-                },
-                error => {
-                  video.setAttribute(
-                    "data-hib-v268-silent-attempt",
-                    "rejected"
-                  );
-
-                  console.warn(
-                    "[HIB v2.1.5 NHPlayer] SILENT PLAY REJECTED:",
-                    JSON.stringify({
-                      name: error && error.name
-                        ? error.name
-                        : "UnknownError",
-                      message: error && error.message
-                        ? String(error.message).slice(0, 180)
-                        : "",
-                      visibility: document.visibilityState,
-                      focused: document.hasFocus()
-                    })
-                  );
-                }
-              );
-            }
-          }
-          catch (error) {
-            video.setAttribute(
-              "data-hib-v268-silent-attempt",
-              "exception"
-            );
-
-            console.warn(
-              "[HIB v2.1.5 NHPlayer] SILENT PLAY EXCEPTION:",
-              String(error).slice(0, 180)
-            );
-          }
-        }
-
-        const candidateURLs = [];
-
-        for (const video of document.querySelectorAll("video")) {
-          hibV268TrySilentPlayback(video);
-          candidateURLs.push(video.currentSrc);
-          candidateURLs.push(video.src);
-          candidateURLs.push(video.getAttribute("src"));
-
-          for (const source of video.querySelectorAll("source")) {
-            candidateURLs.push(source.src);
-          }
-        }
-
-        for (const resource of performance.getEntriesByType("resource")) {
-          candidateURLs.push(resource.name);
-        }
-
-        let selected = null;
-
-        for (const value of candidateURLs) {
-          if (typeof value !== "string" || !value) {
-            continue;
-          }
-
-          try {
-            const url = new URL(value, location.href);
-
-            if (
-              url.protocol === "https:" &&
-              /\.mp4$/i.test(url.pathname) &&
-              !!url.searchParams.get("verify")
-            ) {
-              selected = url.href;
-              break;
-            }
-          }
-          catch (error) {
-            // Ignore non-URL media references.
-          }
-        }
-
-        return {
-          href: location.href,
-          readyState: document.readyState,
-          videoCount: document.querySelectorAll("video").length,
-          /* HIB-V275-NHPLAYER-SUBTITLE-CAPTURE */
-          subtitleReference: !!page.searchParams.get("s"),
-          subtitleURL: (() => {
-            const encoded = page.searchParams.get("s");
-            if (!encoded) return null;
-
-            try {
-              const decoded = atob(encoded);
-              const url = new URL(decoded);
-
-              if (
-                url.protocol !== "https:" ||
-                !/\.(srt|vtt)$/i.test(url.pathname) ||
-                url.username ||
-                url.password
-              ) {
-                return null;
-              }
-
-              return url.href;
-            } catch (error) {
-              return null;
-            }
-          })(),
-          mediaURL: selected
-        };
-      };
-
-      const hibV260Results = await browser.tabs.executeScript(
-        tabId,
-        {
-          allFrames: true,
-          runAt: "document_idle",
-          code: "(" + hibV260Probe.toString() + ")()"
-        }
-      );
-
-      const hibV260Player = (
-        Array.isArray(hibV260Results)
-          ? hibV260Results
-          : []
-      ).find(entry =>
-        entry &&
-        typeof entry.href === "string" &&
-        /^https:\/\/nhplayer\.com\/player\.php(?:\?|$)/i.test(
-          entry.href
-        )
-      );
-
-      const hibV260State = hibV260Player
-        ? {
-            playerFound: true,
-            videoCount: hibV260Player.videoCount,
-            subtitleReference:
-              hibV260Player.subtitleReference,
-            hasVerifiedMP4: !!hibV260Player.mediaURL
-          }
-        : {
-            playerFound: false,
-            videoCount: 0,
-            subtitleReference: false,
-            hasVerifiedMP4: false
-          };
-
-      const hibV260Signature = JSON.stringify(
-        hibV260State
-      );
-
-      if (
-        hibV213InspectGenericTab.hibV260LastSignature !==
-        hibV260Signature
-      ) {
-        hibV213InspectGenericTab.hibV260LastSignature =
-          hibV260Signature;
-
-        console.log(
-          "[HIB v2.1.5 NHPlayer] DIRECT PROBE:",
-          hibV260Signature
-        );
-      }
-
-      if (hibV260Player && hibV260Player.mediaURL) {
-        const hibV260URL = new URL(
-          hibV260Player.mediaURL
-        );
-
-        if (
-          hibV260URL.protocol === "https:" &&
-          /\.mp4$/i.test(hibV260URL.pathname) &&
-          !!hibV260URL.searchParams.get("verify")
-        ) {
-          const hibV260Candidate = {
-            url: hibV260URL.href,
-            score: 70000,
-            source: "nhplayer iframe video.currentSrc"
-          };
-
-          console.log(
-            "[HIB v2.1.5 NHPlayer] DIRECT MEDIA FOUND:",
-            JSON.stringify({
-              host: hibV260URL.hostname,
-              path: hibV260URL.pathname,
-              verified: true,
-              score: hibV260Candidate.score
-            })
-          );
-
-          return {
-            href: hibV260Player.href,
-            title: "",
-            readyState: hibV260Player.readyState,
-            challenge: false,
-            /* HIB-V276-NHPLAYER-SUBTITLE-PROPAGATION */
-            subtitleURL: hibV260Player.subtitleURL || null,
-            best: hibV260Candidate,
-            media: [hibV260Candidate],
-            images: [],
-            outbound: []
-          };
-        }
-      }
-    }
-    catch (error) {
-      console.warn(
-        "[HIB v2.1.5 NHPlayer] DIRECT PROBE ERROR:",
-        String(error)
-      );
-    }
-  }
-  return result[0];
-}
-
-async function hibV213ResolveGeneric(
-  pageUrl
-) {
-  const original =
-    hibV213NormalizeUrl(
-      pageUrl
-    );
-
-  if (!original) {
-    throw new Error(
-      "Invalid generic wrapper URL"
-    );
-  }
-
-  if (
-    hibV213DirectImage(
-      original
-    )
-  ) {
-    return {
-      ok:
-        true,
-
-      originalUrl:
-        original,
-
-      fullUrl:
-        original,
-
-      source:
-        "already-direct",
-
-      chain:
-        [
-          original
-        ]
-    };
-  }
-
-  if (
-    /* HIB-V271-NHPLAYER-FRESH-CACHE-READ */
-    !hibV250IsNH(original) &&
-    hibV213GenericCache.has(original)
-  ) {
-    return hibV213GenericCache.get(
-      original
-    );
-  }
-
-  const tab =
-    await hibV218CreateOwnedTab({
-      url:
-        original,
-
-      active:
-        false
-    });
-
-  if (
-    !tab ||
-    typeof tab.id !==
-      "number"
-  ) {
-    throw new Error(
-      "Generic resolver tab creation failed"
-    );
-  }
-
-  const tabId =
-    tab.id;
-
-  const visited =
-    new Set();
-
-  const started =
-    Date.now();
-
-  let lastDocumentUrl =
-    "";
-
-  let lastCandidateUrl =
-    "";
-
-  let candidateStablePolls =
-    0;
-
-  let poll =
-    0;
-
-  let lastInfo =
-    null;
-
-  /*
-   * HIB-V265-NHPLAYER-ADJUSTABLE-TIMEOUT
-   * Read saved setting once per resolver attempt.
-   */
-  let hibV265NHTimeoutMs = 30000;
-
-  /* HIB-V269-DIAGNOSTIC-STORAGE-FIX */
-  /* HIB-V267-DIAGNOSTIC-MODE */
-  let hibV267KeepDiagnosticTab = false;
-
-  if (hibV250IsNH(original)) {
-    try {
-      const settings = await browser.storage.local.get([
-        "hibV265NHPlayerTimeoutSeconds",
-        "hibV267DiagnosticMode"
-      ]);
-
-      hibV267KeepDiagnosticTab =
-        settings.hibV267DiagnosticMode === true;
-
-      const seconds = Number(
-        settings.hibV265NHPlayerTimeoutSeconds
-      );
-
-      if (
-        Number.isInteger(seconds) &&
-        seconds >= 10 &&
-        seconds <= 90 &&
-        seconds % 10 === 0
-      ) {
-        hibV265NHTimeoutMs = seconds * 1000;
-      }
-    }
-    catch (error) {
-      console.warn(
-        "[HIB v2.1.5 NHPlayer] Settings unavailable; using 30s."
-      );
-    }
-
-    console.log(
-      "[HIB v2.1.5 NHPlayer] TIMEOUT CONFIG:",
-      JSON.stringify({
-        seconds: hibV265NHTimeoutMs / 1000,
-        keepFailedTab: true
-      })
-    );
-  }
-  console.log(
-    "[HIB v2.1.5 generic background] START:",
-    original
-  );
-
-  try {
-    while (
-      /* HIB-V261-NHPLAYER-EXTENDED-READINESS */
-      Date.now() - started <
-      (hibV250IsNH(original) ? hibV265NHTimeoutMs : 30000)
-    ) {
-      poll +=
-        1;
-
-      let tabInfo =
-        null;
-
-      try {
-        tabInfo =
-          await browser.tabs.get(
-            tabId
-          );
-      }
-      catch (error) {
-        throw new Error(
-          "Generic resolver tab disappeared"
-        );
-      }
-
-      const tabUrl =
-        tabInfo &&
-        tabInfo.url
-          ? tabInfo.url
-          : "";
-
-      if (
-        hibV213DirectImage(
-          tabUrl
-        )
-      ) {
-        const result = {
-          ok:
-            true,
-
-          originalUrl:
-            original,
-
-          fullUrl:
-            tabUrl,
-
-          source:
-            "direct tab URL",
-
-          chain:
-            Array.from(
-              visited
-            ),
-
-          pollCount:
-            poll
-        };
-
-        /* HIB-V271-NHPLAYER-FRESH-CACHE-WRITE */
-        if (!hibV250IsNH(original)) {
-          hibV213GenericCache.set(original, result);
-        }
-
-        return result;
-      }
-
-      let info =
-        null;
-
-      try {
-        info =
-          await hibV213InspectGenericTab(
-            tabId
-          );
-      }
-      catch (error) {
-        /*
-         * Normal while redirects replace the document.
-         */
-        hibV250Log(original, "INSPECTION ERROR", {
-          poll: poll,
-          tab: hibV250SafeURL(tabUrl),
-          name: error && error.name ? error.name : "Error",
-          message: error && error.message
-            ? String(error.message).slice(0, 200)
-            : "[no message]"
-        });
-      }
-
-
-      /*
-       * HIB-V266-NHPLAYER-NETWORK-FALLBACK
-       */
-      if (
-        hibV250IsNH(original) &&
-        (
-          !info ||
-          !info.best ||
-          !info.best.url ||
-          info.best.score < 12000
-        )
-      ) {
-        const captured = hibV266NetworkMedia.get(tabId);
-
-        if (captured) {
-          try {
-            const media = new URL(captured);
-
-            if (
-              media.protocol === "https:" &&
-              (
-                media.hostname === "1hanime.com" ||
-                media.hostname.endsWith(".1hanime.com")
-              ) &&
-              /\.mp4$/i.test(media.pathname) &&
-              media.searchParams.get("verify")
-            ) {
-              const candidate = {
-                url: media.href,
-                source: "nhplayer verified network request",
-                score: 70000
-              };
-
-              info = {
-                href: tabUrl,
-                title: "",
-                readyState: "network-captured",
-                challenge: false,
-                best: candidate,
-                media: [candidate],
-                images: [],
-                outbound: []
-              };
-
-              console.log(
-                "[HIB v2.1.5 NHPlayer] NETWORK FALLBACK READY:",
-                JSON.stringify({
-                  host: media.hostname,
-                  path: media.pathname,
-                  hasVerify: true,
-                  poll: poll
-                })
-              );
-            }
-          }
-          catch (error) {
-            // Ignore invalid or incomplete captured URLs.
-          }
-        }
-      }
-
-      if (hibV250IsNH(original)) {
-        hibV250Log(original, "INSPECT", {
-          poll: poll,
-          tab: hibV250SafeURL(tabUrl),
-          document: hibV250SafeURL(info && info.href),
-          ready: info ? info.readyState : "no result",
-          mediaCount: info && Array.isArray(info.media)
-            ? info.media.length : 0,
-          bestScore: info && info.best
-            ? info.best.score : null,
-          bestSource: info && info.best
-            ? info.best.source : null,
-          bestURL: hibV250SafeURL(
-            info && info.best ? info.best.url : ""
-          ),
-          hasVerify: !!(
-            info &&
-            info.best &&
-            /[?&]verify=/i.test(info.best.url || "")
-          )
-        });
-      }
-
-      if (info) {
-        lastInfo =
-          info;
-
-        const current =
-          info.href ||
-          tabUrl;
-
-        if (
-          current &&
-          current !==
-            lastDocumentUrl
-        ) {
-          lastDocumentUrl =
-            current;
-
-          if (
-            !visited.has(
-              current
-            )
-          ) {
-            visited.add(
-              current
-            );
-
-            console.log(
-              "[HIB v2.1.5 generic background] HOP",
-              visited.size,
-              current
-            );
-
-            if (
-              visited.size >
-              4
-            ) {
-              throw new Error(
-                "Generic maximum chain depth of 4 exceeded"
-              );
-            }
-          }
-        }
-
-        if (
-          info.best &&
-          info.best.url &&
-          info.best.score >=
-            12000
-        ) {
-          if (
-            info.best.url ===
-            lastCandidateUrl
-          ) {
-            candidateStablePolls +=
-              1;
-          }
-          else {
-            lastCandidateUrl =
-              info.best.url;
-
-            candidateStablePolls =
-              1;
-          }
-
-          console.log(
-            "[HIB v2.1.5 generic background] candidate:",
-            info.best.score,
-            info.best.url,
-            "stable=" +
-              candidateStablePolls
-          );
-
-          /*
-           * Require the same strong image candidate twice, 500ms apart.
-           */
-          if (
-            candidateStablePolls >=
-              2
-          ) {
-            const result = {
-              ok:
-                true,
-
-              originalUrl:
-                original,
-
-              fullUrl:
-                info.best.url,
-
-              source:
-                info.best.source,
-
-              score:
-                info.best.score,
-
-              /* HIB-V276-NHPLAYER-FINAL-SUBTITLE */
-              subtitleURL: hibV250IsNH(original) &&
-                typeof info.subtitleURL === "string"
-                  ? info.subtitleURL
-                  : null,
-
-              chain:
-                Array.from(
-                  visited
-                ),
-
-              pollCount:
-                poll
-            };
-
-            /* HIB-V271-NHPLAYER-FRESH-CACHE-WRITE */
-            if (!hibV250IsNH(original)) {
-              hibV213GenericCache.set(original, result);
-            }
-
-            if (hibV250IsNH(original)) {
-              hibV250Log(original, "SUCCESS", {
-                poll: poll,
-                media: hibV250SafeURL(result.fullUrl),
-                hasVerify: /[?&]verify=/i.test(
-                  result.fullUrl || ""
-                ),
-                source: result.source,
-                score: result.score
-              });
-            }
-            else {
-              console.log(
-                "[HIB v2.1.5 generic background] STRONG MEDIA READY:",
-                result
-              );
-            }
-
-            return result;
-          }
-        }
-        else {
-          lastCandidateUrl =
-            "";
-
-          candidateStablePolls =
-            0;
-        }
-        /*
-         * HIB-V224-SANKAKU-POST-HOLD
-         *
-         * Sankaku post pages are SPA/media pages. While the requested
-         * post is still loading, generic outbound scoring sees the site
-         * homepage and recommendation cards as plausible continuations.
-         *
-         * Never leave the requested /posts/<id> page merely because its
-         * media has not appeared yet. Keep polling that exact document.
-         *
-         * Once video/image media becomes available, the normal strong
-         * candidate path above returns it.
-         */
-        let hibV224HoldSankakuPost =
-          false;
-
-        try {
-          const hibV224Url =
-            new URL(
-              info &&
-              info.href
-                ? info.href
-                : current
-            );
-
-          hibV224HoldSankakuPost =
-            /(^|\.)sankakucomplex\.com$/i.test(
-              hibV224Url.hostname
-            ) &&
-            /^\/posts\/[^/]+\/?$/i.test(
-              hibV224Url.pathname
-            );
-        }
-        catch (error) {
-          hibV224HoldSankakuPost =
-            false;
-        }
-
-        if (
-          hibV224HoldSankakuPost
-        ) {
-          if (
-            poll === 1 ||
-            poll % 5 === 0
-          ) {
-            console.log(
-              "[HIB v2.1.5 generic background] SANKAKU POST HOLD - waiting for requested post media:",
-              info &&
-              info.href
-                ? info.href
-                : current
-            );
-          }
-
-          await hibV213Sleep(
-            500
-          );
-
-          continue;
-        }
-
-        /*
-         * If no strong image has appeared after the page has had a moment,
-         * follow only the highest-scoring image-like outbound link.
-         */
-        if (
-          poll >= 3 &&
-          Array.isArray(
-            info.outbound
-          ) &&
-          info.outbound.length
-        ) {
-          const next =
-            info.outbound.find(
-              item =>
-                item &&
-                item.url &&
-                !visited.has(
-                  item.url
-                )
-            );
-
-          if (
-            next &&
-            next.score >=
-              2500
-          ) {
-            visited.add(
-              next.url
-            );
-
-            if (
-              visited.size >
-              4
-            ) {
-              throw new Error(
-                "Generic maximum chain depth of 4 exceeded"
-              );
-            }
-
-            if (hibV250IsNH(original)) {
-              hibV250Log(original, "NAVIGATE", {
-                poll: poll,
-                destination: hibV250SafeURL(next.url),
-                score: next.score
-              });
-            }
-            else {
-              console.log(
-                "[HIB v2.1.5 generic background] following wrapper outbound:",
-                next.score,
-                next.url
-              );
-            }
-
-            await browser.tabs.update(
-              tabId,
-              {
-                url:
-                  next.url
-              }
-            );
-
-            hibV250Log(original, "NAVIGATION ACCEPTED", {
-              poll: poll,
-              destination: hibV250SafeURL(next.url)
-            });
-
-            lastCandidateUrl =
-              "";
-
-            candidateStablePolls =
-              0;
-
-            await hibV213Sleep(
-              500
-            );
-
-            continue;
-          }
-        }
-      }
-
-      await hibV213Sleep(
-        500
-      );
-    }
-
-    hibV250Log(original, "TIMEOUT", {
-      poll: poll,
-      lastDocument: hibV250SafeURL(lastDocumentUrl),
-      lastReady: lastInfo ? lastInfo.readyState : "none",
-      lastMediaCount:
-        lastInfo && Array.isArray(lastInfo.media)
-          ? lastInfo.media.length
-          : 0
-    });
-
-    /*
-     * HIB-V252-NHPLAYER-RETAIN-TIMEOUT
-     * Diagnostic only: retain NHPlayer on timeout.
-     */
-    var hibV252RetainOnTimeout = hibV250IsNH(original);
-
-    /*
-     * HIB-V265-NHPLAYER-TIMEOUT-METRICS
-     * Do not reference an unverified polling counter.
-     */
-    if (hibV250IsNH(original)) {
-      console.warn(
-        "[HIB v2.1.5 NHPlayer] TIMEOUT METRICS:",
-        JSON.stringify({
-          elapsedSeconds: +((Date.now() - started) / 1000).toFixed(2),
-          configuredSeconds: hibV265NHTimeoutMs / 1000,
-          diagnosticTabExpectedToRemain: true
-        })
-      );
-    }
-    throw new Error(
-      "Generic resolver timed out after " + (hibV250IsNH(original) ? hibV265NHTimeoutMs / 1000 : 30) + " seconds. Last inspection: " +
-      JSON.stringify(
-        lastInfo
-      )
-    );
-  }
-  finally {
-    /* HIB-V267-SUCCESS-RETENTION */
-    if (
-      hibV252RetainOnTimeout ||
-      (hibV250IsNH(original) && hibV267KeepDiagnosticTab)
-    ) {
-      if (hibV250IsNH(original) && hibV267KeepDiagnosticTab) {
-        hibV267LastDiagnosticTabId = tabId;
-
-        console.log(
-          "[HIB v2.1.5 NHPlayer] DIAGNOSTIC TAB RETAINED:",
-          JSON.stringify({
-            tabId: tabId,
-            reason: hibV252RetainOnTimeout
-              ? "timeout"
-              : "resolution finished",
-            ownerReleaseRequired: true
-          })
-        );
-      }
-
-      hibV266NetworkMedia.delete(tabId);
-      /*
-       * HIB-V252-NHPLAYER-RETAIN-TIMEOUT-CLEANUP
-       * Outer owner queue releases normally.
-       * Only the timed-out NHPlayer tab is preserved.
-       */
-      console.warn(
-        "[HIB v2.1.5 NHPlayer] RETAINED TAB FOR INSPECTION:",
-        tabId,
-        "Wait for owner RELEASE before selecting"
-      );
-      /*
-       * HIB-V253-NHPLAYER-DETACH-OWNER
-       *
-       * Preserve the NHPlayer diagnostic tab after timeout.
-       * Complete the normal orphan sweep, then release ownership.
-       * Release also cancels the 60-second watchdog.
-       *
-       * The retained tab is no longer subject to resolver
-       * activation protection.
-       */
-      if (hibV218OwnedTabId === tabId) {
-        await hibV221SweepNoOpenerOrphans();
-
-        hibV218Release(
-          "NHPlayer diagnostic tab detached"
-        );
-
-        console.warn(
-          "[HIB v2.1.5 NHPlayer] DETACHED:",
-          tabId,
-          "Safe to inspect manually"
-        );
-      }
-    }
-    else {
-      try {
-        await browser.tabs.remove(tabId);
-      }
-      catch (error) {}
-    }
-  }
-}
-
-browser.runtime.onMessage.addListener(
-  message => {
-    if (
-      !message ||
-      message.type !==
-        "hib-v2-resolve-generic"
-    ) {
-      return undefined;
-    }
-
-    const target =
-      hibV213NormalizeUrl(
-        message.pageUrl
-      );
-
-    if (!target) {
-      return Promise.resolve({
-        ok:
-          false,
-
-        error:
-          "Invalid generic wrapper URL"
-      });
-    }
-
-    if (
-      hibV213GenericInflight.has(
-        target
-      )
-    ) {
-      return hibV213GenericInflight.get(
-        target
-      );
-    }
-
-    const job =
-      hibV213ResolveGeneric(
-        target
-      )
-        .catch(error => ({
-          ok:
-            false,
-
-          error:
-            String(error)
-        }))
-        .finally(() => {
-          hibV213GenericInflight.delete(
-            target
-          );
-        });
-
-    hibV213GenericInflight.set(
-      target,
-      job
-    );
-
-    return job;
-  }
-);
-
-console.log(
-  "[HIB v2.1.5 generic background] fallback resolver loaded"
-);
+const hib101MediaOriginHints = new Map();
+/* RC297: a verified episode can be opened long after discovery (the card keeps it for 24 h). Every time the player is
+ * opened the content script re-arms the exact-URL referrer hint, so a hotlink-protected CDN still gets the site's own page. */
+/* RC468: error-driven Referer. The HIB player reports a playlist / segment that was refused (401/403/404/410/412) before anything played; every saved address on that
+ * registrable domain is flagged so the Referer hook adds the page that verified it, and the player restarts its loading. Self-healing for hosts the open-time probe could not judge. */
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-rc468-need-referer')return undefined;
+ try{
+  if(!String(sender?.url||'').startsWith(browser.runtime.getURL('')))return Promise.resolve({ok:false});
+  const dom=h=>h.split('.').slice(-2).join('.');
+  const d=dom(new URL(msg.url).hostname);let n=0;
+  for(const [k,hh] of hib101MediaOriginHints){try{if(hh&&Date.now()<hh.until&&dom(new URL(k).hostname)===d){hh.needsReferer=true;n++;}}catch(_){}}
+  if(n)hibRefererSync();
+  return Promise.resolve({ok:n>0,flagged:n});
+ }catch(_){return Promise.resolve({ok:false});}
+});
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-rc297-media-hint')return undefined;
+ try{
+  const media=new URL(msg.url),ref=new URL(msg.referrer),tab=new URL(sender?.tab?.url||'');
+  if(media.protocol!=='https:'||ref.protocol!=='https:'||!tab.hostname)return Promise.resolve({ok:false});   // RC459: the referrer may be the embed's address on another site (saved with the card)
+  const had=hib101MediaOriginHints.get(media.href);
+  if(!had||Date.now()>had.until)hib101MediaOriginHints.set(media.href,{referrer:ref.href,until:Date.now()+30*60*1000,source:'verified-popup'});
+  return Promise.resolve({ok:true});
+ }catch(_){return Promise.resolve({ok:false});}
+});
 /*
  * HIB-V216-SITE-MANAGER
  *
- * This allowlist controls SOURCE sites where content.js executes.
+ * This allowlist controls SOURCE sites where unified_player.js executes.
  *
  * Resolver destinations are separate: arbitrary image hosts may still be
  * opened by the background resolver without being added to enabledSites.
@@ -6978,7 +128,7 @@ async function hibV216ReadSites() {
 
   /*
    * Upgrade migration:
-   * v2.1.3 was a Sukebei-specific installation, so retain Sukebei
+   * v2.1.3 was a single-site installation, so retain that site
    * automatically the first time v2.1.3 starts.
    */
   if (
@@ -6987,10 +137,7 @@ async function hibV216ReadSites() {
       "enabledSites"
     )
   ) {
-    const initial =
-      [
-        "sukebei.nyaa.si"
-      ];
+    const initial = []; // TEST build: do not silently recreate a truncated site list.
 
     await browser.storage.local.set({
       enabledSites:
@@ -7100,12 +247,7 @@ async function hibV216RegisterSite(site) {
           "/*"
       ],
 
-      js: [
-        {
-          file:
-            "content.js"
-        }
-      ],
+      js: [{ file: "unified_player.js" }],
 
       runAt:
         "document_idle"
@@ -7340,6 +482,11 @@ async function hibV216RemoveSite(value) {
   );
 
   await hibV273DeleteMode(site);
+  const existing=await browser.storage.local.get('hibRc78VideoProfiles');
+  const profiles=existing.hibRc78VideoProfiles||{};
+  if(Object.prototype.hasOwnProperty.call(profiles,site)){
+   delete profiles[site];await browser.storage.local.set({hibRc78VideoProfiles:profiles});
+  }
 
   return site;
 }
@@ -7447,152 +594,7 @@ browser.runtime.onMessage.addListener(
     return undefined;
   }
 );
-
-/*
- * HIB-V279-NHPLAYER-SUBTITLE-FETCH
- * Fetch English subtitle files for AnimeID.
- * Isolated from the existing video resolver.
- */
-browser.runtime.onMessage.addListener((message, sender) => {
-  if (!message || message.type !== 'hib-v2-subtitle-fetch') {
-    return undefined;
-  }
-
-  return (async () => {
-    try {
-      const source = new URL(
-        sender && sender.url ? sender.url : ''
-      );
-
-      if (
-        source.protocol !== 'https:' ||
-        source.hostname !== 'animeidhentai.com'
-      ) {
-        throw new Error('Subtitle request source not permitted');
-      }
-
-      const subtitleURL = new URL(message.url);
-
-      if (
-        subtitleURL.protocol !== 'https:' ||
-        subtitleURL.hostname !== 'cdn.htstreaming.com' ||
-        !/^\/english\//i.test(subtitleURL.pathname) ||
-        !/\.(srt|vtt)$/i.test(subtitleURL.pathname) ||
-        subtitleURL.username ||
-        subtitleURL.password
-      ) {
-        throw new Error('Subtitle URL not permitted');
-      }
-
-      const controller = new AbortController();
-      const timeout = setTimeout(
-        () => controller.abort(),
-        12000
-      );
-
-      try {
-        const response = await fetch(subtitleURL.href, {
-          method: 'GET',
-          credentials: 'omit',
-          redirect: 'error',
-          signal: controller.signal
-        });
-
-        if (!response.ok) {
-          throw new Error(
-            'Subtitle HTTP status ' + response.status
-          );
-        }
-
-        const declaredLength = Number(
-          response.headers.get('content-length') || 0
-        );
-
-        if (declaredLength > 1048576) {
-          throw new Error('Subtitle exceeds 1 MiB limit');
-        }
-
-        const reader = response.body &&
-          typeof response.body.getReader === 'function'
-            ? response.body.getReader()
-            : null;
-
-        let body;
-
-        if (reader) {
-          const chunks = [];
-          let total = 0;
-
-          while (true) {
-            const part = await reader.read();
-
-            if (part.done) break;
-
-            total += part.value.byteLength;
-
-            if (total > 1048576) {
-              await reader.cancel();
-              throw new Error('Subtitle exceeds 1 MiB limit');
-            }
-
-            chunks.push(part.value);
-          }
-
-          const bytes = new Uint8Array(total);
-          let offset = 0;
-
-          for (const chunk of chunks) {
-            bytes.set(chunk, offset);
-            offset += chunk.byteLength;
-          }
-
-          body = new TextDecoder('utf-8').decode(bytes);
-        } else {
-          body = await response.text();
-
-          if (new TextEncoder().encode(body).length > 1048576) {
-            throw new Error('Subtitle exceeds 1 MiB limit');
-          }
-        }
-
-        if (!body.trim()) {
-          throw new Error('Subtitle response is empty');
-        }
-
-        const format = subtitleURL.pathname
-          .split('.').pop().toLowerCase();
-
-        console.log(
-          '[HIB v2.1.5 NHPlayer] SUBTITLE FETCH:',
-          JSON.stringify({
-            success: true,
-            format: format,
-            length: body.length
-          })
-        );
-
-        return {
-          ok: true,
-          format: format,
-          text: body
-        };
-      } finally {
-        clearTimeout(timeout);
-      }
-    } catch (error) {
-      console.warn(
-        '[HIB v2.1.5 NHPlayer] SUBTITLE FETCH FAILED:',
-        String(error)
-      );
-
-      return {
-        ok: false,
-        error: String(error)
-      };
-    }
-  })();
-});
-hibV216SyncSites()
+Promise.resolve(window.hibBackupReady).then(() => hibV216SyncSites())
   .catch(error => {
     console.error(
       "[HIB v2.1.5 sites] startup sync failed:",
@@ -7603,3 +605,1611 @@ hibV216SyncSites()
 console.log(
   "[HIB v2.1.5 sites] site manager loaded"
 );
+async function hibExtractObservedVtt(capture,baseUrl,domCandidates=[],tabId=null) {
+  const list=[...new Set([...domCandidates,...capture.urls])];
+  const candidates=list.filter(item=>{try {
+    const u=new URL(item,baseUrl);
+    return u.protocol==='https:' && (/\.vtt(?:[/?#]|$)/i.test(u.href)||/(?:subtitle|caption)/i.test(u.pathname));
+  }catch(_){return false;}});
+  // RC440: ENGLISH FIRST, ENGLISH ONLY. Candidates are tried English-named ones first (en / eng / english in the address), and a file whose dialogue
+  // letters are mostly not Latin (Arabic, Cyrillic, CJK ...) is skipped (hibRc439LooksLatin), so another language track can never win just by being first.
+  const enRank=item=>/(?:^|[\/._=-])(?:en|eng|english)(?:[\/._&?=-]|$)/i.test(item)?0:1;
+  candidates.sort((x,y)=>enRank(x)-enRank(y));
+  for(const candidate of candidates.slice(0,16)) {
+    let url=null;
+    try {
+      url=new URL(candidate,baseUrl);
+      const response=await fetch(url.href,{credentials:'include',referrer:baseUrl});
+      if(!response.ok){console.info('[HIB global captions] VTT_HTTP',response.status,url.pathname);continue;}
+      const text=await response.text();
+      if(text.length<=2000000 && text.replace(/^\uFEFF/,'').trimStart().startsWith('WEBVTT') && hibRc439LooksLatin(text)) {
+        console.info('[HIB global captions] VTT_READY',url.pathname);
+        return {text,label:/\.eng(?:\.|$)/i.test(url.pathname)?'English':'Subtitles'};
+      }
+      console.info('[HIB global captions] INVALID_VTT',url.pathname);
+    }catch(error){
+      console.info('[HIB global captions] VTT_FETCH_FAILED',String(error));
+      if(tabId != null && url) {
+        // Page-origin fallback for subtitle servers that require first-party requests.
+        try {
+          const fetched = await browser.tabs.executeScript(tabId,{
+            code:`(async () => {
+              const r=await fetch(${JSON.stringify(url.href)},{credentials:'include'});
+              if(!r.ok)return null;
+              const t=await r.text();
+              return t.length <= 2000000 && t.replace(/^\uFEFF/,'').trimStart().startsWith('WEBVTT') ? t : null;
+            })()`
+          });
+          if(typeof fetched?.[0] === 'string' && hibRc439LooksLatin(fetched[0])) {
+            console.info('[HIB global captions] VTT_READY_PAGE',url.pathname);
+            return {text:fetched[0],label:/\.eng(?:\.|$)/i.test(url.pathname)?'English':'Subtitles'};
+          }
+        }catch(e){console.info('[HIB global captions] VTT_PAGE_FETCH_FAILED',String(e));}
+      }
+    }
+  }
+  console.info('[HIB global captions] TRACKS_NOT_FOUND',{observed:capture.urls.size,candidates:candidates.length});
+  return null;
+}
+
+/* RC73 TEST: temporary focused popup playback experiment. Never claims a
+ * source verified simply because a URL exists. Player API calls may be blocked
+ * by browser policy; log that explicitly. No OS-level/trusted click simulated.
+ */
+// RC108: one global discovery or permission probe. Do not queue other cards.
+let hibRc108Busy=false;
+let hibRc108PermissionTab=null;
+let hibRc111Handoff=null;
+let hibRc111HandoffTimer=null;
+// RC111: Probe the actual episode origin BEFORE Dismiss closes its tab.
+// WebExtensions cannot directly read Firefox's stored autoplay site permission.
+let hibRc111PermissionResult='unknown';
+const hibRc111PlaybackCode = `(async()=>{
+ const a=document.createElement('audio'),rate=8000,count=800,length=44+count*2;
+ const bytes=new Uint8Array(length),dv=new DataView(bytes.buffer);
+ const wr=(p,v)=>{for(let i=0;i<v.length;i++)bytes[p+i]=v.charCodeAt(i)};
+ wr(0,'RIFF');dv.setUint32(4,length-8,true);wr(8,'WAVEfmt ');
+ dv.setUint32(16,16,true);dv.setUint16(20,1,true);dv.setUint16(22,1,true);
+ dv.setUint32(24,rate,true);dv.setUint32(28,rate*2,true);
+ dv.setUint16(32,2,true);dv.setUint16(34,16,true);
+ wr(36,'data');dv.setUint32(40,count*2,true);
+ let raw='';for(const x of bytes)raw+=String.fromCharCode(x);
+ a.src='data:audio/wav;base64,'+btoa(raw);a.muted=false;a.volume=1;
+ try{await a.play();a.pause();return 'allowed';}
+ catch(e){return e?.name||'unknown';}finally{a.remove();}
+})()`;
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type==='hib-rc108-probe-state')return Promise.resolve({busy:hibRc108Busy,permissionTabId:hibRc108PermissionTab});
+ return undefined;
+});
+/* RC133 / PLAYER ADAPTER REGISTRY
+ * AUTO DETECTION: the rendered media resolver remains the global fallback for every site.
+ * PLAYER TYPES: framework engine and transport format are separate dimensions.
+ * To add a player: introduce a named adapter; never embed new site-specific tests in
+ * the card detector or landing detector. Profiles are advice, not proof of playback.
+ */
+const HIB_RC133_RULES='hibRc133VerifiedSiteRules';
+const hibRc133PlayerAdapters=Object.freeze({
+ jwplayer:{label:'JW Player'},videojs:{label:'Video.js'},flowplayer:{label:'Flowplayer'},
+ plyr:{label:'Plyr'},shaka:{label:'Shaka'},hlsjs:{label:'hls.js'},
+ dashjs:{label:'dash.js'},nplayer:{label:'NPlayer'},html5:{label:'HTML5'},
+ custom:{label:'Custom / universal'}
+});
+// RC133 / MEDIA FORMAT CLASSIFIER: classify the verified URL, never infer playability.
+function hibRc133MediaFormat(url){try{const p=new URL(url).pathname.toLowerCase();return p.endsWith('.m3u8')?'hls':p.endsWith('.mpd')?'dash':/\.webm$/.test(p)?'webm':'mp4';}catch(_){return 'unknown';}}
+// RC133 / ENGINE CLASSIFIER: keep uncertain engines marked custom until positively observed.
+function hibRc133EngineFromDiscovery(data){
+ const hint=String(data?.playerEngine||data?.engine||data?.playerType||'').toLowerCase();
+ return Object.keys(hibRc133PlayerAdapters).find(k=>hint.includes(k))||'custom';
+}
+// RC133 / VERIFIED SITE PROFILE CACHE: persist framework/transport only after playback.
+// Never persist transient signed media URLs or authorization headers in profiles.
+async function hibRc133StoreVerifiedRule(target,engine,format){
+ const all=await browser.storage.local.get(HIB_RC133_RULES);
+ const db=all[HIB_RC133_RULES]||{};
+ const key=target.hostname;
+ const record=db[key]||{cards:{},verifiedAt:0};
+ // Generic path-family key; no domain-specific /3d/ or /videos/ rules.
+ const family=target.pathname.split('/').filter(Boolean)[0]||'/';
+ record.cards[family]={engine,format,verified:true,checkedAt:Date.now()};
+ record.verifiedAt=Date.now();db[key]=record;
+ await browser.storage.local.set({[HIB_RC133_RULES]:db});
+ console.info('[HIB RC133 / PROFILE CACHE] VERIFIED_RULE_SAVED',{host:key,engine,format});
+}
+/* RC297: does an observed video candidate look like an advertisement rather than the episode?
+ * Small player, a standard ad size in its address, or a known ad network. */
+function hibRc297LooksLikeAd(h){
+ try{
+  // RC447: the scan popup is small (560x360), so a real player can render only ~419x209 (xanimeporn): that is 87,571 px^2 and was dropped as an "ad"
+  // by the old 120,000 px^2 floor, although the video played. The floor is 80,000 now (a 300x250 banner ad is 75,000 and is still caught).
+  if(h.w>0&&h.h>0&&(h.w<200||h.h<120||h.w*h.h<80000))return true;
+  // RC346: an episode is longer than a minute; a clip whose duration is known and shorter is an ad
+  // RC448: a known duration under a minute is suspicious (ads are short) -> it was held back for 20 s. nhentai34.com's rule34video embeds are SHORT CLIPS that start
+  // playing at once in a big player (513x289): they waited the full 20 s (24 s per hover, the "spins forever" complaint). A video that fills the player area
+  // (>= 80,000 px^2; banner ads are 300x250 = 75,000) and whose address is not ad-like is accepted after 5 s instead of 20 s.
+  if(h.kind!=='hlsManifest'&&h.kind!=='configSource'&&h.maxDuration>0&&h.maxDuration<60&&Date.now()-(h.seenAtWall||0)<((h.w*h.h>=80000)?5000:20000))return true; // still short after the grace period with nothing longer: a genuinely short episode
+  const hay=(String(h.url||'')+' '+String(h.frame||'')).toLowerCase();
+  if(/(?:^|[^0-9])(?:300x250|728x90|160x600|300x600|320x50|970x250|468x60|360x70|300x100)(?:[^0-9]|$)/.test(hay))return true;
+  if(/(?:adshow|adserver|doubleclick|googlesyndication|imasdk|exoclick|trafficjunky|juicyads|jads[.]co|emberglade|storagexhd|sadbaguette|greentrafsa|trackwilltrk|popunder|preroll|syndication|banner|mmcdn|roomad|chaturbate|bkcdn|bxcdn|sacdnssedge|havenclick|flixcdn|realsrv|tsyndicate|clickadu|adsterra|propeller|popcash|livejasmin|stripcdn)/.test(hay))return true;
+  // A preview / teaser / trailer / hover thumbnail clip is not the episode (a landing page that needs a Watch click).
+  const path=(()=>{try{return new URL(h.url).pathname.toLowerCase();}catch(_){return String(h.url||'').toLowerCase();}})();
+  // RC448: ...unless it is the PAGE'S MAIN PLAYER and it really plays: watchhentai.net serves a non-member only "<name>-preview.mp4" in its one big player (the
+  // site's own player plays nothing else), and HIB must hand that to its player instead of spinning until the scan gives up. A preview that merely sits in a
+  // card/hero (small, not advancing) is still dropped.
+  const mainPlayerPlaying=(h.kind==='currentSrc'&&h.maxAdvance>=1&&h.w*h.h>=80000)||(h.kind==='configSource'&&h.maxAdvance>=3&&!(h.w*h.h)&&(h.readyState||0)>=2);
+  if(!mainPlayerPlaying&&/(?:^|[^a-z])(?:preview|previews|teaser|trailer|heatmap|thumb|thumbs|sample)(?:[^a-z]|$)/.test(path))return true;
+  if(/[/](?:ads?|bnr|banners?)[/]/.test(path))return true;
+ }catch(_){}
+ return false;
+}
+/* RC297: how many words (or a numeric id) of the PAGE's own address does this source's address share?
+ * The real episode usually carries the page's slug or id (rosalina-animation -> Rosalina Animation.mp4,
+ * watch?v=405865 -> 405865-1080p.mp4); an advertisement never does. */
+const HIB_RC297_STOP=new Set(['http','https','html','watch','video','videos','episode','episodes','english','hentai','anime','subbed','player','embed','free','online','stream','page','search','genres','latest']);
+function hibRc297Tokens(s){
+ const out=new Set();
+ for(const w of String(s||'').toLowerCase().split(/[^a-z0-9]+/)){
+  if(w.length>=4||(w.length>=3&&/^[0-9]+$/.test(w)))out.add(w);
+ }
+ return out;
+}
+function hibRc297SlugScore(candidateUrl,target){
+ try{
+  const page=[...hibRc297Tokens(target.pathname+' '+target.search)].filter(w=>!HIB_RC297_STOP.has(w));
+  if(!page.length)return 0;
+  const cand=hibRc297Tokens(decodeURIComponent(new URL(candidateUrl).pathname));
+  let n=0;
+  for(const w of page)if(cand.has(w))n+=/^[0-9]{4,}$/.test(w)?2:1;
+  return n;
+ }catch(_){return 0;}
+}
+/* RC297: resolution label in a URL (720p -> 720), used to pick the best of several configured qualities. */
+function hibRc297Res(u){const m=/([0-9]{3,4})p/.exec(String(u));return m?Number(m[1]):0;}
+/* RC297: a configured source counts only if the server really answers a 2-byte range request with video. */
+async function hibRc297RangeOk(url){
+ try{
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);
+  const r=await fetch(url,{headers:{Range:'bytes=0-1'},cache:'no-store',signal:c.signal});clearTimeout(t);
+  const ct=(r.headers.get('content-type')||'').toLowerCase();
+  try{if(r.body)r.body.cancel();}catch(_){}
+  // 403/401: the file exists but is hotlink-protected; the player sends the site's own page as Referer (hint), so it can still play.
+  return (r.status===200||r.status===206)?(/video|octet-stream|mpegurl/.test(ct)||!ct):(r.status===403||r.status===401);
+ }catch(_){return false;}
+}
+
+const hibRc133ResolveMedia=(msg,sender)=>{
+ if(msg?.type!=='hib-test-global-rendered-media')return undefined;
+ const owner=sender?.tab?.id;
+ const matchingHandoff=Boolean(msg.permissionRetry && hibRc111Handoff &&
+  hibRc111Handoff.owner===owner && hibRc111Handoff.pageUrl===msg.pageUrl);
+ if(hibRc108Busy && !matchingHandoff)return Promise.resolve({ok:false,busy:true,error:'HIB discovery is occupied; no queue created'});
+ if(matchingHandoff){
+  hibRc111Handoff=null;
+  if(hibRc111HandoffTimer!==null){clearTimeout(hibRc111HandoffTimer);hibRc111HandoffTimer=null;}
+ }
+ hibRc108Busy=true;hibRc108BusySince=Date.now();
+ return (async()=>{
+  let target;try{target=new URL(msg.pageUrl);}catch(_){return {ok:false,error:'invalid URL'};}
+  if(!/^https?:$/.test(target.protocol))return {ok:false,error:'non-web URL'};
+  let popup=null,priorWindow=null,priorTab=null,framesExamined=0;
+  // RC105: only observe VTT URLs for the short-lived discovery popup tab.
+  const popupVtt={urls:new Set()};
+  const popupFonts=new Set();   // font files the episode page loads itself (ASS subtitles may name them)
+  let popupVttListener=null,popupFontListener=null;let hibPopListener=null,hibStrayUpd=null,hibStrayAct=null,hibGuardReg=null,hibGuardProbe=null;
+  // RC295: MSE players play from a blob: URL and the real playlist is often missing from the page's
+  // resource-timing list (buffer full / worker requests). Watch the discovery tab's network requests instead.
+  let popupManifestListener=null;const popupNetManifests=new Set();let popupMediaListener=null;const popupNetMedia=new Set();
+  const observedOrigins=new Set([target.origin]);
+  const history=new Map(), errors=new Set();let last={}, diagnosticSnapshots=[], tick=0;
+  // RC126: referenced after the polling loop as well as within it.
+  let rc114PermissionState='unknown';
+  const popupDomCaptions=new Set();
+  try{
+   priorTab=Number.isInteger(sender?.tab?.id)?sender.tab.id:null;
+   let hibStore=null,hibOrigIndex=null;
+   if(priorTab!==null){const tab=await browser.tabs.get(priorTab).catch(()=>null);priorWindow=tab?.windowId??null;hibStore=tab?.cookieStoreId||null;hibOrigIndex=Number.isInteger(tab?.index)?tab.index:null;}
+   // RC119: restore the RC110 background pop-under for verified discovery.
+   // RC133 / POPUP OWNERSHIP: reuse the landing detector's already-open browser window.
+   // Historical standalone entrypoint remains available as rollback only.
+   let hibGeo=null,hibBlankStart=false;
+   try{if(!msg.rc133Popup&&priorWindow!==null){const pw=await browser.windows.get(priorWindow);if(pw&&pw.state!=='minimized'&&pw.state!=='fullscreen'&&pw.width>500&&pw.height>400)hibGeo={l:pw.left,t:pw.top,w:pw.width,h:pw.height,f:!!pw.focused};}}catch(_){}
+   hibBlankStart=!msg.rc133Popup;
+   // The scan window keeps this size for its whole life (never grown over the browser): wide enough for a player to lay out at >=200x110.
+   // Placed fully INSIDE the browser window, 30 px in from its upper-left, so no edge shows outside the browser.
+   const hibSmall=hibGeo?{width:Math.min(560,hibGeo.w-60),height:Math.min(360,hibGeo.h-60),left:hibGeo.l+30,top:hibGeo.t+30}:{width:560,height:360};
+   // The scan window opens in the SAME container as the tab the card is in: container / proxy / VPN extensions route a site to its container,
+   // and a tab opened in another one is closed and reopened by them as a new focused tab.
+   let hibPrevFocus=null;
+   try{const lf=await browser.windows.getLastFocused();if(lf&&lf.focused&&lf.id!==undefined)hibPrevFocus=lf.id;}catch(_){}
+   const hibWinOpts={url:'about:blank',type:(typeof HIB_DEBUG_WINDOW_TYPE==='string'?HIB_DEBUG_WINDOW_TYPE:'popup'),focused:false,...hibSmall};
+   const hibWithStore=hibStore&&hibStore!=='firefox-default'?{...hibWinOpts,cookieStoreId:hibStore}:hibWinOpts;
+   console.info('[HIB scan window]',{cookieStoreId:hibStore||'none',usingStore:hibWithStore!==hibWinOpts});
+   // Scan surface: a background TAB (never active) next to the tab the card is in, in its container; closing it returns to that tab.
+   const hibUseTab=!msg.rc133Popup&&priorTab!==null&&priorWindow!==null&&(typeof HIB_DEBUG_SCAN_SURFACE==='string'?HIB_DEBUG_SCAN_SURFACE:'tab')==='tab';
+   if(hibUseTab){
+    const tabOpts={url:'about:blank',active:false,windowId:priorWindow,openerTabId:priorTab,...(hibOrigIndex!==null?{index:hibOrigIndex+1}:{})};
+    const withStore=hibStore&&hibStore!=='firefox-default'?{...tabOpts,cookieStoreId:hibStore}:tabOpts;
+    console.info('[HIB scan tab]',{cookieStoreId:hibStore||'none',index:tabOpts.index,usingStore:withStore!==tabOpts});
+    let t;try{t=await browser.tabs.create(withStore);}catch(e){console.warn('[HIB scan tab] container open failed, default container used',String(e));t=await browser.tabs.create(tabOpts);}
+    popup={isTab:true,tabs:[t]};
+   }
+   else try{popup=msg.rc133Popup||(await hibRc293Acquire(target.href,hibWithStore)).win;}
+   catch(e){console.warn('[HIB scan window] container open failed, default container used',String(e));hibRc293Owned.delete(hibRc293Key(target.href));popup=await hibRc293Acquire(target.href,hibWinOpts).then(r=>r.win);}
+   // A new window takes OS focus and sits on top. If the user's browser window had focus, it is raised again over the scan window
+   // (the same window, same tab: no tab or window is activated), so the scan window stays behind it.
+   if(hibPrevFocus!==null&&popup?.id!=null){
+    // The new window takes OS focus and sits on top. The browser window is raised over it (so the scan window stays behind the browser),
+    // then the window the user was actually in (the browser itself, or their Settings window) gets focus back. If another PROGRAM had focus
+    // (no Firefox window was focused) nothing is raised, so focus is never taken from it.
+    const hibRaise=async()=>{
+     if(priorWindow!==null)await browser.windows.update(priorWindow,{focused:true}).catch(()=>{});
+     if(hibPrevFocus!==priorWindow)await browser.windows.update(hibPrevFocus,{focused:true}).catch(()=>{});
+    };
+    hibRaise();setTimeout(hibRaise,250);setTimeout(hibRaise,900);
+   }
+   const probe=popup?.tabs?.[0]?.id;
+   if(!Number.isInteger(probe))throw new Error('popup tab unavailable');
+   // From the first script of every document in the scan tab, window.open is blocked: a site that opens its own page in a new tab
+   // (pop-under) would otherwise put that tab, focused, in the user's browser window. Other tabs only wait for the answer below.
+   hibGuardProbe=probe;hibScanProbes.add(probe);
+   try{hibGuardReg=await browser.contentScripts.register({matches:['<all_urls>'],allFrames:true,matchAboutBlank:true,runAt:'document_start',js:[{file:'scan_guard.js'}]});}catch(e){console.warn('[HIB scan guard] not registered',String(e));}
+   hibPopListener=tab=>{
+    if(tab.id===probe)return;
+    if(tab.openerTabId===probe||(popup&&tab.windowId===popup.id)){
+     console.info('[HIB RC346]',{status:'AD_TAB_CLOSED',url:String(tab.url||tab.pendingUrl||'').slice(0,80)});
+     browser.tabs.remove(tab.id).catch(()=>{});
+    }
+   };
+   browser.tabs.onCreated.addListener(hibPopListener);
+   const hibIsEpisode=u=>{try{const x=new URL(u),t=new URL(target.href);const np=q=>q.pathname.replace(/[/]+$/,'');return x.origin===t.origin&&np(x)===np(t)&&x.search===t.search;}catch(_){return false;}};
+   const hibKillStray=(tabId,why)=>{console.info('[HIB RC346]',{status:'STRAY_EPISODE_TAB_CLOSED',why});browser.tabs.remove(tabId).catch(()=>{});
+   };
+   hibStrayUpd=(tabId,change,tab)=>{if(tabId===probe||!change.url||tabId===priorTab)return;if(popup&&tab.windowId===popup.id)return;if(hibIsEpisode(change.url))hibKillStray(tabId,'updated');};
+   hibStrayAct=a=>{if(a.tabId===probe||a.tabId===priorTab)return;browser.tabs.get(a.tabId).then(t=>{if(popup&&t.windowId===popup.id)return;if(hibIsEpisode(t.url||''))hibKillStray(a.tabId,'activated');}).catch(()=>{});};
+   browser.tabs.onUpdated.addListener(hibStrayUpd);browser.tabs.onActivated.addListener(hibStrayAct);
+   popupVttListener=details=>{
+    if(details.tabId!==probe)return;
+    try{const u=new URL(details.url);if(u.protocol==='https:' && (/[.](?:vtt|srt|ass|ssa)$/i.test(u.pathname)||/(?:subtitle|captions?|[/]subs?[/])/i.test(u.pathname)))popupVtt.urls.add(u.href);}catch(_){}
+   };
+   browser.webRequest.onBeforeRequest.addListener(popupVttListener,{urls:['<all_urls>']});
+   /* START page fonts: styled (ASS) subtitles can name fonts the video page ships; remember those files so the player can use them (https only, at most 8) */
+   popupFontListener=details=>{
+    if(details.tabId!==probe||popupFonts.size>=8)return;
+    try{const u=new URL(details.url);if(u.protocol==='https:'&&(details.type==='font'||/[.](?:woff2?|ttf|otf)$/i.test(u.pathname)))popupFonts.add(u.href);}catch(_){}
+   };
+   browser.webRequest.onBeforeRequest.addListener(popupFontListener,{urls:['<all_urls>']});
+   /* END page fonts */
+   popupManifestListener=details=>{
+    if(details.tabId!==probe)return;
+    try{const u=new URL(details.url);const p=u.pathname.toLowerCase();
+     if(/^https?:$/.test(u.protocol)&&(p.endsWith('.m3u8')||p.endsWith('.mpd')||(p.startsWith('/hls/')&&(u.hostname===target.hostname||u.hostname.endsWith('.'+target.hostname))))){if(!popupNetManifests.has(u.href))console.info('[HIB RC295]',{status:'NET_MANIFEST_SEEN',host:u.hostname,path:u.pathname.slice(0,80)});popupNetManifests.add(u.href);}}catch(_){}
+   };
+   browser.webRequest.onBeforeRequest.addListener(popupManifestListener,{urls:['<all_urls>']});
+   popupMediaListener=details=>{
+    if(details.tabId!==probe)return;
+    try{const u=new URL(details.url);const p=u.pathname.toLowerCase();
+     if(/^https?:$/.test(u.protocol)&&(p.endsWith('.mp4')||p.endsWith('.webm')||p.endsWith('.m4v'))&&hibRc297SlugScore(u.href,target)>=2)popupNetMedia.add(u.href);}catch(_){}
+   };
+   browser.webRequest.onBeforeRequest.addListener(popupMediaListener,{urls:['<all_urls>']});
+   // Muting applies to the tab even when the website creates additional media.
+   // RC119: restore RC110 muted background discovery.
+   await browser.tabs.update(probe,{muted:true}).catch(()=>{});
+   if(hibBlankStart){
+    await browser.tabs.update(probe,{url:target.href}).catch(()=>{});
+   }
+   // RC150 / TARGETED FIRST, FASTEST-FIRST UNIVERSAL PROBE.
+   // This is a read-only preflight. The RC149 live playback loop below
+   // retains exclusive responsibility for verifying playable media.
+   let hibRc150Probe={engine:'custom',probes:[]};
+   try{
+    const saved=await HIBRC150.readProfile(target.hostname,target.pathname);
+    const order=HIBRC150.buildPlan(saved);
+    // RC284: do not run every engine when a previously identified engine exists.
+    // A failed targeted probe may fall back to the original universal discovery.
+    if(saved?.engine){
+      hibRc150Probe=await HIBRC150.probeTab(probe,[saved.engine]);
+      console.info('[HIB RC284]',{status:'SITE_PROFILE_TARGETED_PROBE',engine:saved.engine,detected:hibRc150Probe.engine});
+      if(hibRc150Probe.engine==='custom'){
+        hibRc150Probe=await HIBRC150.probeTab(probe,order.filter(id=>id!==saved.engine));
+        console.info('[HIB RC284]',{status:'SITE_PROFILE_FALLBACK',detected:hibRc150Probe.engine});
+      }
+    }else hibRc150Probe=await HIBRC150.probeTab(probe,order);
+    console.info('[HIB RC150 / ADAPTER DISPATCH]',{
+     host:target.hostname,preferred:saved?.engine||null,
+     detected:hibRc150Probe.engine,probes:hibRc150Probe.probes,
+     elapsedMs:hibRc150Probe.elapsedMs});
+   }catch(error){console.warn('[HIB RC150 / ADAPTER DISPATCH] FALLBACK',String(error));}
+   if(HIB_DEBUG_STOP_AFTER){
+    try{const ex=await browser.management.getAll();console.info('[HIB DEBUGSTOP]','extensions-that-can-touch-tabs',JSON.stringify(ex.filter(x=>x.enabled&&x.type==='extension'&&x.id!==browser.runtime.id&&(x.permissions||[]).some(q=>/^(tabs|webRequestBlocking|contextualIdentities|proxy)$/.test(q))).map(x=>x.name+' ['+x.id+'] '+(x.permissions||[]).filter(q=>/^(tabs|webRequestBlocking|contextualIdentities|proxy|webNavigation)$/.test(q)).join('/'))));}catch(e){console.info('[HIB DEBUGSTOP]','management unavailable',String(e));}
+    const stages=['html5','jwplayer','videojs','plyr','hlsjs','dashjs','shaka','flowplayer','nplayer','iframe'];
+    const snap=async label=>{try{const ws=await browser.windows.getAll({populate:true});console.info('[HIB DEBUGSTOP]',label,JSON.stringify(ws.map(w=>({id:w.id,type:w.type,focused:w.focused,tabs:(w.tabs||[]).map(t=>(t.active?'*':'')+t.id+' '+String(t.url||'').slice(0,60))}))));}catch(e){console.info('[HIB DEBUGSTOP]',label,'snapshot failed',String(e));}};
+    await snap('before-load');
+    for(let i=0;i<40;i++){try{const t=await browser.tabs.get(probe);if(t.status==='complete'&&/^https?:/.test(t.url||''))break;}catch(_){}await sleep(500);}
+    await snap('page-loaded');
+    // What the page shows, per frame: media elements, player markers, player libraries, iframes (no URLs beyond host+path).
+    try{
+     const ev=await browser.tabs.executeScript(probe,{allFrames:true,code:`(()=>{try{
+      const w=window.wrappedJSObject||window;
+      const q=s=>document.querySelectorAll(s).length;
+      const allV=[...document.querySelectorAll('video,audio')];const vids={total:allV.length,live:allV.filter(v=>v.currentSrc||v.getAttribute('src')||v.readyState>0||v.getBoundingClientRect().width>0).slice(0,4).map(v=>({tag:v.tagName,src:(v.currentSrc||v.getAttribute('src')||'').slice(0,70),blob:String(v.src||'').startsWith('blob:'),ready:v.readyState,paused:v.paused,w:Math.round(v.getBoundingClientRect().width),h:Math.round(v.getBoundingClientRect().height)}))};
+      const libs={};for(const k of ['jwplayer','videojs','Hls','dashjs','shaka','flowplayer','Plyr','DPlayer','NPlayer','Artplayer','MediaElementPlayer','fluidPlayer','Clappr','OpenPlayer'])try{if(typeof w[k]!=='undefined')libs[k]=typeof w[k];}catch(e){}
+      const marks={jw:q('.jwplayer,.jw-video,[data-jwplayer-id]'),videojs:q('video-js,.video-js'),plyr:q('.plyr'),flow:q('.flowplayer,.fp-player'),nplayer:q('[class*=nplayer]'),dash:q('.dashjs-player,[class*=dash-]'),shaka:q('.shaka-video-container'),genericPlayer:q('[class*=player],[id*=player]'),iframes:q('iframe')};
+      const frames=[...document.querySelectorAll('iframe')].slice(0,6).map(f=>{try{const u=new URL(f.src,location.href);return u.host+u.pathname.slice(0,40)+' '+Math.round(f.getBoundingClientRect().width)+'x'+Math.round(f.getBoundingClientRect().height);}catch(e){return 'bad';}});
+      const scriptsHint=/jwplayer|videojs|hls\.js|dash\.js|shaka|flowplayer|plyr/i.exec([...document.scripts].map(x=>(x.src||'')+' '+(x.textContent||'').slice(0,3000)).join(' '));
+      return {frame:location.host+location.pathname.slice(0,30),top:window.top===window,state:document.readyState,vids,libs,marks,frames,scriptHint:scriptsHint&&scriptsHint[0]};
+     }catch(e){return {error:String(e)};}})()`});
+     console.info('[HIB DEBUGSTOP]','page-evidence',JSON.stringify((ev||[]).map(x=>x?.result??x)));
+    }catch(e){console.info('[HIB DEBUGSTOP]','page-evidence failed',String(e));}
+    // Autoplay check (the same play test the full scan runs ~1 s in): does this origin allow media to start?
+    try{const ap=await browser.tabs.executeScript(probe,{code:hibRc111PlaybackCode});console.info('[HIB DEBUGSTOP]','autoplay-preflight',JSON.stringify(ap?.[0]?.result??ap?.[0]??null));}catch(e){console.info('[HIB DEBUGSTOP]','autoplay-preflight inconclusive',String(e));}
+    let stopProbe=null;
+    try{stopProbe=await HIBRC150.probeTab(probe,stages.slice(0,stages.indexOf(HIB_DEBUG_STOP_AFTER)+1));}catch(e){stopProbe={error:String(e)};}
+    console.info('[HIB DEBUGSTOP]','probe-done',{stopAfter:HIB_DEBUG_STOP_AFTER,detected:stopProbe.engine,probes:stopProbe.probes});
+    await sleep(3000);
+    await snap('3s-after-probe');
+    hibTabLogUntil=Date.now()+15000;
+    return {error:'debug stop after '+HIB_DEBUG_STOP_AFTER,debugStop:true,detected:stopProbe.engine,sources:[],frames:0,observations:[],autoplayPermission:null};
+   }
+   // RC134 / VIDEO HANDOFF: the independent landing observer already classified this popup.
+   // Do not rescan landing, restart navigation, or create a replacement window.
+   if(msg.rc133Popup)console.info('[HIB RC134 / VIDEO HANDOFF] EXISTING_POPUP_ADOPTED',{path:target.pathname,tabId:probe});
+   // RC128: classify navigation-only pages in the SAME rendered discovery popup.
+   // An uncertain page continues to the normal player-activation/verification loop.
+   let landingDecisionMade=Boolean(msg.rc133Popup);
+   let landingSeenAt=0; // RC134: landing-only observer already decided this popup
+   // RC294 FIX: this injected script is a template string. Without String.raw, JavaScript consumed the
+   // backslashes in its regexes (\s became s, \( became a bare paren), so the script had a syntax error,
+   // every injection threw 'unterminated group' and the resolver looped for 60 s (popup discovery exhausted).
+   // Only the NHPlayer path, which skips this classifier, still worked. Keep String.raw, and write line
+   // breaks inside it as a backslash followed by n.
+   const renderedLandingCode=String.raw`(() => {
+    if(window.top!==window)return {inconclusive:true};
+    const title=document.title||'';
+    const frames=[...document.querySelectorAll('iframe[src],embed[src],object[data]')];
+    const mediaFrame=frames.some(f=>{
+     const raw=f.getAttribute('src')||f.getAttribute('data')||'';
+     if(!raw||raw==='about:blank')return false;
+     let u;try{u=new URL(raw,location.href);}catch(_){return false;}
+     const hint=[u.pathname,f.id,f.className,f.title||'',f.getAttribute('allow')||''].join(' ').toLowerCase();
+     if(/(?:adserver|magsrv|pemsrv|doubleclick|popunder|banner)/i.test(u.hostname))return false;
+     if(/(?:player|embed|stream|video|jwplayer|hls)/i.test(hint))return true;
+     const r=f.getBoundingClientRect();return r.width>=360&&r.height>=200&&r.width/r.height>=1.3;
+    });
+    const player=Boolean(document.querySelector('video,audio,source[src],video-js,.video-js,.jwplayer,.jw-video,[data-jwplayer-id],.plyr,.plyr__video-wrapper,.flowplayer,.fp-player,.dplayer,.art-video-player'));
+    const scripts=[...document.scripts].map(s=>(s.textContent||'').slice(0,50000)).join('\n');
+    const bootstrap=/(?:jwplayer\s*\(|videojs\s*\(|new\s+Plyr\s*\(|new\s+Hls\s*\(|new\s+DPlayer\s*\(|\.setup\s*\(\s*\{[\s\S]{0,1000}(?:sources|file)\s*:)/i.test(scripts);
+    const links=new Set([...document.querySelectorAll('a[href]')].map(a=>{
+     try{const u=new URL(a.getAttribute('href'),location.href);return u.origin===location.origin&&/\/videos\/[^/]+\/?$/i.test(u.pathname)?u.href:null;}catch(_){return null;}
+    }).filter(Boolean));
+    const heading=[...document.querySelectorAll('h1,h2,h3,h4,h5,[role="heading"]')].some(h=>/(?:episode\s*(?:list|selection|guide)|select\s+(?:an?\s+)?episode)/i.test(h.textContent||''));
+    const selector=Boolean(document.querySelector('.episode-list,.episodes-list,.episode-listing,.episodelist,[id*="episode-list"],[class*="episode-list"],[class*="episodes-list"]'));
+    const evidence=!player&&!mediaFrame&&links.size>=1&&(heading||selector);
+    return {complete:document.readyState!=='loading' && Boolean(document.body),evidence,player:player||mediaFrame,scriptHint:bootstrap,episodeCount:links.size,title,href:location.href};
+   })()`;
+   const began=Date.now(),deadline=began+30000;/* RC448: was 45 s (a scan that cannot find a video gave up after 45-50 s: spins for a minute) */let hibScrolls=0;let usableSince=0;let hibAutoplayChecked=false,hibForcePermission=false;let hibClicks=0,hibClickTries=0,hibNextClickAt=began+1200;let hibKnownPath=null;try{const k=new URL(msg.knownSource);hibKnownPath=hibFileKey(k.href);}catch(_){}   /* RC467: REFRESH of an episode HIB already verified once (its saved address ran out): the same file with a new signature is accepted as soon as the page's player config names it, without waiting for the video to play again */
+   const hibKnownHit=h=>{if(!hibKnownPath||h.kind!=='configSource')return false;try{return hibFileKey(h.url)===hibKnownPath;}catch(_){return false;}};
+      /* RC465: first click round at 1.2 s (was 3 s); a round that finds no play control is not counted */let hibFramePrep=0;let hibRetry=0;let hibProbeTries=0;
+   /* RC468: FAST REFRESH. An episode HIB already verified keeps its player type, page and file path (the saved address only lost its short-lived signature).
+    * Instead of the full discovery loop (each round samples playback for ~1.5 s), a light probe runs every ~150 ms in every frame: it clicks the player's play control
+    * (at most every 700 ms, never while a video is already moving) and returns the moment a <video> shows the SAME file path with a new signature. That address is put
+    * into the history as the player's configured source; the normal checks below still run on it (reachability, ad filter). Nothing is accepted from a different file. */
+   if(hibKnownPath){
+    const fastEnd=Date.now()+14000;let lastFastClick=0;
+    const fastCode=(known,doClick)=>"(()=>{try{const known="+JSON.stringify(known)+";let playing=false,hit=null;for(const v of document.querySelectorAll('video')){const s=v.currentSrc||v.src||'';if(!s)continue;if(v.currentTime>0.3&&!v.paused)playing=true;try{const u=new URL(s,location.href);if(u.origin+'|'+u.pathname.split('/').filter(Boolean).slice(-2).join('/')===known&&!hit)hit={src:u.href,frame:location.href,rs:v.readyState,dur:Number.isFinite(v.duration)?v.duration:0,w:v.videoWidth||0,h:v.videoHeight||0};}catch(e){}}"+
+     "if(hit)return hit;if("+(doClick?"true":"false")+"&&!playing){const sel=['.play','.jw-icon-display','.jw-display-icon-container','.vjs-big-play-button','.fp-play','.plyr__control--overlay','button[aria-label*=Play i]','[class*=play-btn i]','[class*=bigplay i]'];for(const q of sel){const e=document.querySelector(q);if(!e)continue;const r=e.getBoundingClientRect();if(r.width<8||r.height<8)continue;for(const ev of ['pointerdown','mousedown','pointerup','mouseup','click'])e.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window}));try{e.click();}catch(x){}break;}}return null;}catch(e){return null;}})()";
+    while(Date.now()<fastEnd){
+     const doClick=Date.now()-lastFastClick>=700;if(doClick)lastFastClick=Date.now();
+     let rows=[];try{rows=await browser.tabs.executeScript(probe,{allFrames:true,code:fastCode(hibKnownPath,doClick)});}catch(_){}
+     const hit=(rows||[]).map(x=>x&&typeof x==='object'&&'result' in x?x.result:x).find(x=>x&&x.src);
+     if(hit){
+      history.set(hit.src,{url:hit.src,kind:'configSource',frame:hit.frame,firstSeenMs:Date.now()-began-400,seenAtWall:Date.now()-400,observations:1,maxMediaTime:0,maxAdvance:0,playAttempts:0,readyState:hit.rs||0,maxDuration:hit.dur||0,w:hit.w,h:hit.h,visibility:true});
+      console.info('[HIB RC346]',{status:'FAST_REFRESH_SOURCE',elapsedMs:Date.now()-began,path:hibKnownPath.slice(-40)});
+      break;
+     }
+     await new Promise(r=>setTimeout(r,150));
+    }
+   }
+   while(Date.now()<deadline){
+    // RC131: do not invoke the video scanner until a ONE-TIME DOM classification.
+    // A page that has not rendered its body is not classified yet.
+    await new Promise(r=>setTimeout(r,180));
+    if(!landingDecisionMade){
+     let info;
+     try{
+      const landingRows=await browser.tabs.executeScript(probe,{code:renderedLandingCode});
+      info=landingRows?.[0]?.result ?? landingRows?.[0];
+     }catch(e){
+      // Firefox may reject injection while the destination navigates. Wait for DOM.
+      console.info('[HIB RC131] LANDING_WAIT_DOM',String(e));
+      continue;
+     }
+     if(!info?.complete)continue;
+     // Ignore stale/redirected snapshots; the destination must be the requested page.
+     let samePage=false;
+     try{const u=new URL(info.href);samePage=u.origin===target.origin && u.pathname.replace(/\/$/,'')===target.pathname.replace(/\/$/,'');}catch(_){}
+     if(!samePage)continue;
+     if(info.evidence&&!info.player&&!landingSeenAt)landingSeenAt=Date.now();
+     if(info.evidence&&!info.player&&Date.now()-landingSeenAt<10000){continue;}
+     landingDecisionMade=true;
+     console.info('[HIB RC131] LANDING_CLASSIFIED_ONCE',{
+      path:target.pathname,landing:!!info.evidence,episodes:info.episodeCount,
+      player:!!info.player,scriptHint:!!info.scriptHint,elapsedMs:Date.now()-began
+     });
+     if(info.evidence && !info.player){
+      console.info('[HIB RC131] LANDING_EARLY_EXIT',{path:target.pathname,episodes:info.episodeCount,elapsedMs:Date.now()-began});
+      return {...last,ok:false,landing:true,verified:false,episodeCount:info.episodeCount,
+       popupAttempted:true,error:null};
+     }
+     // Otherwise run the existing player activation / media discovery loop.
+    }
+    if(hibScrolls<2&&Date.now()-began>(hibScrolls?6000:1500)&&(hibScrolls===0||history.size===0)){hibScrolls++;
+     await browser.tabs.executeScript(probe,{code:`(()=>{try{const el=document.querySelector('video,iframe[src*="player"],iframe[src*="embed"],iframe[src*="stream"],.video-js,.jwplayer,.plyr,#player,.player');if(el)el.scrollIntoView({block:'center'});else window.scrollBy(0,Math.round(innerHeight*0.6));window.dispatchEvent(new Event('scroll'));return !!el;}catch(e){return false;}})()`}).catch(()=>{});
+     console.info('[HIB RC346]',{status:'LAZY_PLAYER_SCROLL_DONE',elapsedMs:Date.now()-began});
+    }
+    if(tick%3===0)browser.tabs.update(probe,{muted:true}).catch(()=>{});
+    browser.tabs.executeScript(probe,{allFrames:true,code:"(()=>{try{const w=window.wrappedJSObject;if(w&&!w.__hibNoPop){w.__hibNoPop=true;w.open=exportFunction(function(){return null;},window);}}catch(e){}})()"}).catch(()=>{});
+    if(tick%2===1&&tick<24)browser.tabs.executeScript(probe,{allFrames:true,code:"(()=>{try{ if(window.__hibAdClosedAt&&Date.now()-window.__hibAdClosedAt<15000)return false; const exact=/^(?:skip|skip ad|skip ads|close|close ad|dismiss|no thanks|continue to video|continue|x|\u00d7|\u2715)$/i; const phrase=/(?:close ads?\\b|close ad\\s*&|continue to (?:the )?(?:site|video|website)|skip (?:the )?ads?\\b|enter site|i am 18|i'm 18|enter)/i; for(const el of document.querySelectorAll('button,[role=button],a,div,span')){ if(el.children.length>3)continue; const t=(el.innerText||el.getAttribute('aria-label')||el.title||'').replace(/\\s+/g,' ').trim(); if(!t||t.length>60)continue; const isPhrase=phrase.test(t)&&!/^(?:enter)$/i.test(t); if(!isPhrase&&!exact.test(t))continue; const cs=getComputedStyle(el),r=el.getBoundingClientRect(); if(r.width<8||r.height<8||cs.visibility==='hidden'||cs.display==='none')continue; if(!isPhrase&&(r.width>220||r.height>90))continue; if(isPhrase&&(r.width>700||r.height>150))continue; let ov=false;for(let p=el;p&&p!==document.body;p=p.parentElement){const ps=getComputedStyle(p).position;if(ps==='fixed'||ps==='absolute'||ps==='sticky'){const b=p.getBoundingClientRect();if(b.width*b.height>=0.5*innerWidth*innerHeight){ov=true;break;}}} if(!ov)continue; if(el.tagName==='A'&&el.href){try{if(new URL(el.href,location.href).origin!==location.origin)continue;}catch(e){continue;}} const tgt=el.matches('button,[role=button],a')?el:(el.querySelector('button,[role=button],a')||el); for(const ev of ['pointerdown','mousedown','pointerup','mouseup','click'])tgt.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,view:window})); try{tgt.click();}catch(e){} window.__hibAdClosedAt=Date.now(); return t;}}catch(e){}return false;})()"}).then(r=>{const hit=(r||[]).map(x=>x?.result??x).find(x=>x);if(hit)console.info('[HIB RC322]',{status:'AD_OVERLAY_CLOSED',text:hit});}).catch(()=>{});
+    if(tick%3===0)browser.tabs.executeScript(probe,{allFrames:true,code:"(()=>{try{for(const v of document.querySelectorAll('video,audio')){v.muted=true;v.volume=0;}}catch(e){}})()"}).catch(()=>{});
+    if(hibRetry<2&&Date.now()-began>(hibRetry?8000:3000)&&![...history.values()].some(h=>h.maxAdvance>=0.5)){hibRetry++;browser.tabs.executeScript(probe,{allFrames:true,code:"(()=>{try{let n=0;const pw=window.wrappedJSObject||window; for(const v of document.querySelectorAll('video,audio')){ if(v.currentTime>0.3&&!v.paused)continue; n++;try{v.muted=true;v.volume=0;v.pause();}catch(e){} setTimeout(()=>{try{v.muted=true;v.volume=0;const pr=v.play();if(pr&&pr.catch)pr.catch(()=>{});}catch(e){}},1000); } try{if(typeof pw.jwplayer==='function'){const j=pw.jwplayer();if(j&&j.getState&&j.getState()!=='playing'){n++;j.pause&&j.pause(true);setTimeout(()=>{try{j.play&&j.play(true);}catch(e){}},1000);}}}catch(e){} return n;}catch(e){return -1;}})()"}).then(r=>console.info('[HIB RC346]',{status:'PAUSE_PLAY_RETRY',attempt:hibRetry,frames:(r||[]).map(x=>x?.result??x)})).catch(()=>{});}
+    if(hibRc150Probe.engine==='custom'&&hibProbeTries<3&&Date.now()-began>(1400+hibProbeTries*3500)){hibProbeTries++;
+     try{const sv=await HIBRC150.readProfile(target.hostname,target.pathname);hibRc150Probe=await HIBRC150.probeTab(probe,HIBRC150.buildPlan(sv));
+      console.info('[HIB RC346]',{status:'PLAYER_TYPE_PROBE',attempt:hibProbeTries,detected:hibRc150Probe.engine,probes:hibRc150Probe.probes.map(x=>x.id+':'+x.status).join(',')});}catch(_){}}
+    if(hibFramePrep<2&&Date.now()-began>(hibFramePrep?2200:800)){hibFramePrep++;browser.tabs.executeScript(probe,{code:"(()=>{let n=0;try{for(const f of document.querySelectorAll('iframe')){const a=(f.getAttribute('allow')||'');if(/autoplay/i.test(a))continue;const bb=f.getBoundingClientRect();if(bb.width<360||bb.height<200)continue;f.setAttribute('allow',(a?a+'; ':'')+'autoplay; fullscreen; encrypted-media');const src=f.getAttribute('src');if(src&&src!=='about:blank'&&f.getBoundingClientRect().width>=200){f.setAttribute('src','about:blank');setTimeout(()=>f.setAttribute('src',src),60);}n++;}}catch(e){}return n;})()"}).then(r=>console.info('[HIB RC346]',{status:'IFRAMES_AUTOPLAY_ALLOWED',count:r&&r[0]})).catch(()=>{});}
+    // RC448: click rounds are counted only when something was really clicked (a round that finds no play control, e.g. while a heavy iframe embed is still
+    // loading, used to use up the 3 rounds by 9 s and nothing was ever clicked again). Rounds repeat every 2.5 s, at most 14 tries, 3 real clicks.
+    if(hibClicks<3&&hibClickTries<14&&Date.now()>=hibNextClickAt&&![...history.values()].some(h=>h.maxAdvance>=1)){hibClickTries++;hibNextClickAt=Date.now()+1800;browser.tabs.executeScript(probe,{allFrames:true,code:"(()=>{try{ const big=el=>{const r=el.getBoundingClientRect();return r.width>=200&&r.height>=110;}; const fire=(el,x,y)=>{for(const ev of ['pointerdown','mousedown','pointerup','mouseup','click'])el.dispatchEvent(new MouseEvent(ev,{bubbles:true,cancelable:true,clientX:x,clientY:y,view:window}));try{el.click();}catch(e){}}; const vids=[...document.querySelectorAll('video')]; const v=vids.find(big); /* RC447: a play/pause button is a TOGGLE. Never click while a video is already playing (a second round used to pause xanimeporn's video that the first round had just started), and a big video that has its source loaded but sits paused is started with play(), not with another toggle click. */ if(vids.some(x=>!x.paused&&!x.ended&&x.readyState>=2))return false; const loadedPaused=vids.find(x=>big(x)&&x.currentSrc&&x.readyState>=2&&x.paused&&!x.ended); if(loadedPaused){try{loadedPaused.play().catch(()=>{});}catch(e){} return 'play-loaded-video';} const sels=['.vjs-big-play-button','.jw-display-icon-container','.jw-icon-display','.plyr__control--overlaid','[class*=\"big-play\"]','[class*=\"play-button\"]','[class*=\"playbutton\"]','[class*=\"play-overlay\"]','[class*=\"play_button\"]','[aria-label=\"Play\"]','button[title=\"Play\"]','.fp-play','.play-btn','#play','.play']; for(const q of sels){const el=document.querySelector(q);if(el&&el.getBoundingClientRect().width>8){el.click();return 'clicked '+q;}} const emptyVideo=vids.length>0&&vids.every(x=>!x.currentSrc&&x.readyState===0); if(!vids.length&&window.top!==window&&innerWidth<200)return false; /* RC501: a player's own 'Continue watching? You were at 0:29 [Continue] [Restart]' prompt (nhentai34) has to be answered before the video starts: such a button is clicked, but only inside a player / video container (never a site-level 'Continue' of an age gate or consent banner). */ const inPlayer=el=>{const c=el.closest('[class*=player],[id*=player],[class*=video],[id*=video],.plyr,.jwplayer,.video-js,.fp-ui,[class*=embed]');return !!c&&c!==document.body&&c!==document.documentElement;}; let labelled=null; for(const el of document.querySelectorAll('div,span,button,a,svg,i')){const t=(el.innerText||el.getAttribute('aria-label')||el.title||'').trim();if((/^(play|watch|click to play|play video)$/i.test(t)||(/^(continue|resume|continue watching|restart)$/i.test(t)&&inPlayer(el)))&&el.children.length<4){const r=el.getBoundingClientRect();if(r.width>8&&r.height>8&&r.width<innerWidth+5){labelled=el;break;}}} if(labelled){const r=labelled.getBoundingClientRect();fire(labelled,r.left+r.width/2,r.top+r.height/2);return 'clicked-label';} if(emptyVideo||(v&&!v.currentSrc&&v.readyState===0)){ const cx=Math.round(innerWidth/2),cy=Math.round(innerHeight/2); const top=document.elementFromPoint(cx,cy)||v; fire(top,cx,cy); try{(v||vids[0]).play().catch(()=>{});}catch(e){} return 'clicked-center:'+(top&&top.tagName)+'.'+String(top&&top.className).slice(0,30);} return false;}catch(e){return 'err';}})()"}).then(r=>{const res=(r||[]).map(x=>x?.result??x);if(res.some(Boolean))hibClicks++;console.info('[HIB RC346]',{status:'PLAY_ACTIVATION',clicks:hibClicks,tries:hibClickTries,result:res});}).catch(()=>{});}
+    if(Date.now()-began>8000&&![...history.values()].some(h=>!hibRc297LooksLikeAd(h))){
+     try{
+      // SOURCE DOWN: the player (or the page itself) shows an error page such as "404 - Not found". Nothing can be played now,
+      // but the source may come back, so report it like a landing page (apostrophe) and let the card be retried later.
+      const deadRows=await browser.tabs.executeScript(probe,{allFrames:true,code:`(() => {
+       const t=((document.body&&document.body.innerText)||'').replace(/ +/g,' ').trim().slice(0,400);
+       const bad=/(404|not found|file not found|no longer available|unavailable|has been removed|was deleted|does not exist)/i.test((document.title||'')+' '+t);
+       return bad&&t.length<350&&(window.top===window||(innerWidth>=300&&innerHeight>=150))?{down:true,text:t.slice(0,80),href:location.href,top:window.top===window}:null;
+      })()`});
+      const dead=(deadRows||[]).map(r=>r?.result??r).find(r=>r&&r.down);
+      if(dead){
+       console.info('[HIB RC297]',{status:'SOURCE_DOWN',frame:dead.href,text:dead.text,elapsedMs:Date.now()-began});
+       return {...last,ok:false,landing:true,reason:'source-down',verified:false,episodeCount:0,popupAttempted:true,error:null};
+      }
+      const res=await browser.tabs.executeScript(probe,{code:`(() => {
+       const ok=/^(watch|play|stream|start watching)([ ]+[a-z0-9]+){0,3}[ !>]*$/i;
+       const inMenu=el=>!!el.closest('nav,header,footer,[role="navigation"],.menu,.navbar,.nav,.sidebar');
+       const txt=el=>(el.innerText||el.textContent||'').replace(/[^A-Za-z0-9 ]+/g,' ').replace(/ +/g,' ').trim();
+       const visible=el=>{const r=el.getBoundingClientRect();return r.width>20&&r.height>10&&getComputedStyle(el).visibility!=='hidden';};
+       const big=el=>{const r=el.getBoundingClientRect();return r.width>=300&&r.height>=170;};
+       const notPreview=el=>!/(preview|teaser|trailer|thumb|[/]ads?[/])/i.test((el.currentSrc||el.getAttribute('src')||'')+' '+[...el.querySelectorAll('source[src]')].map(s=>s.getAttribute('src')).join(' '));
+       const players=[...document.querySelectorAll('video,video-js,.video-js,.jwplayer,.jw-video,[data-jwplayer-id],.plyr,.plyr__video-wrapper,.flowplayer,.fp-player,.dplayer,.art-video-player')].filter(el=>big(el)&&notPreview(el));
+       const frames=[...document.querySelectorAll('iframe[src],embed[src],object[data]')].filter(f=>{const r=f.getBoundingClientRect();return r.width>=360&&r.height>=200&&/(player|embed|stream|video)/i.test((f.getAttribute('src')||f.getAttribute('data')||'')+' '+(f.className||'')+' '+(f.id||''));});
+       if(players.length||frames.length)return {landing:false};
+       const button=[...document.querySelectorAll('a[href],button,[role="button"],.btn,.button')].filter(el=>{const t=txt(el);return t&&t.length<=30&&ok.test(t)&&visible(el)&&!inMenu(el);})[0];
+       const eps=new Set();
+       for(const a of document.querySelectorAll('a[href]')){
+        const t=(a.textContent||'')+' '+(a.getAttribute('title')||'')+' '+(a.querySelector('img')?.alt||'');
+        if(/episode[ ]*[0-9]+/i.test(t)){try{const u=new URL(a.href);if(u.origin===location.origin&&u.pathname!==location.pathname)eps.add(u.href);}catch(e){}}
+       }
+       const gated=/(premium members only|members only|(log ?in|sign ?in|subscribe) to (watch|view|play))/i.test((document.body&&document.body.innerText)||'');
+       return {landing:gated||!!button||eps.size>=3,gated:gated,button:button?txt(button):null,episodes:eps.size};
+      })()`});
+      const info=res&&res[0];
+      if(info&&info.landing&&(info.gated||Date.now()-began>15000)){
+       // LANDING PAGE: no video is ready to play (no real-size player), and the page offers a Watch / Play button or a list
+       // of episodes. Report it at once: the bridge closes this popup and the card is marked with an apostrophe.
+       console.info('[HIB RC297]',{status:'LANDING_PAGE',button:info.button,episodes:info.episodes,elapsedMs:Date.now()-began});
+       return {...last,ok:false,landing:true,reason:info.gated?'members-only':'no-video-ready',verified:false,episodeCount:info.episodes||0,popupAttempted:true,error:null};
+      }
+     }catch(_){}
+    }
+    let rows;
+    try{await browser.tabs.executeScript(probe,{code:'window.__hibNetManifests='+JSON.stringify([...popupNetManifests].slice(-12))+';window.__hibNetMedia='+JSON.stringify([...popupNetMedia].slice(-6))+';'});}catch(_){}
+    try{rows=await browser.tabs.executeScript(probe,{allFrames:true,code:`(async()=>{
+     const items=[];const add=(raw,kind,el)=>{if(!raw)return;try{
+      const u=new URL(raw,location.href);if(!/^https?:$/.test(u.protocol))return;
+      items.push({url:u.href,kind,readyState:el?.readyState??null,
+       currentTime:el?.currentTime??null,duration:Number.isFinite(el?.duration)?el.duration:null,
+       paused:el?.paused??null,w:Math.round(el?.getBoundingClientRect?.().width||0),h:Math.round(el?.getBoundingClientRect?.().height||0)});}catch(_){}};
+     const els=[...document.querySelectorAll('video,audio')];
+     // RC295: the playing / MSE element, not simply the first (empty) one.
+     const hibMainEl=els.find(e=>!e.paused&&e.readyState>=2)||els.find(e=>String(e.src||'').startsWith('blob:'))||els[0]||null;
+     for(const el of els){
+      // RC116: preserve website/player audio state during diagnostics.
+      const key='__hibRC73';let state=el[key];
+      if(!state)state=el[key]={attempts:0,lastTry:0,errors:[],originTime:el.currentTime||0,maxAdvance:0};
+      state.maxAdvance=Math.max(state.maxAdvance,Math.max(0,(el.currentTime||0)-state.originTime));
+      // RC114: a site player can leave paused=false while never attaching a
+      // source (readyState=0). After a grace period retry pause/play once,
+      // replicating the user's working manual recovery. Never claim success
+      // until the existing currentTime/readyState verification passes.
+      // RC115 TEST: stage an initial paused period rather than issuing play()
+      // immediately while an embedded player is still initializing.
+      if(!state.firstSeen){
+       state.firstSeen=Date.now();
+       state.initialPauseUntil=state.firstSeen+1000;
+       if(el.readyState<2 || !el.currentSrc){
+        try{el.pause();console.info('[HIB RC115] INITIAL_PAUSE',location.origin);}catch(_){}
+       }else{
+        // Do not interrupt media that has already initialized and is playing.
+        state.initialPauseUntil=state.firstSeen;
+       }
+      }
+      const initialPauseElapsed=Date.now()>=state.initialPauseUntil;
+      // RC117: JW Player owns source attachment. Native video.play() cannot
+      // activate a configured JW playlist while its media element is empty.
+      // Use the public player API once on an idle, configured instance, and
+      // leave existing HTML5/video.js and verified-playing media unchanged.
+      let jwActivationPending=false;
+      if(initialPauseElapsed && !el.currentSrc && el.readyState===0 &&
+         !state.jwActivationTried){
+       try{
+        // Firefox MV2 tabs.executeScript runs in an isolated extension world.
+        // JW Player is created by the PAGE inside its own iframe, so window.jwplayer
+        // can be absent here despite being present in the developer console.
+        // Firefox's wrappedJSObject provides explicit access to the page world.
+        const pageWindow=window.wrappedJSObject||window;
+        const jw=typeof pageWindow.jwplayer==='function'?pageWindow.jwplayer:null;
+        if(jw){
+         const player=jw();
+         const item=player?.getPlaylistItem?.();
+         const sources=item?.sources;
+         const sourceConfigured=Boolean(item?.file || (sources && Array.from(sources).some(s=>s?.file)));
+         let ownsVideo=false;
+         try{ownsVideo=Boolean(player?.getContainer?.()?.contains(el));}catch(_){}
+         // This code is already injected into every frame. Never act on a JW
+         // player from another frame, nor on an unrelated player in this frame.
+         if(ownsVideo && sourceConfigured && player?.getState?.()==='idle' && typeof player.play==='function'){
+          state.jwActivationTried=true;
+          state.jwActivationAt=Date.now();
+          jwActivationPending=true;
+          console.info('[HIB RC118] JW_IDLE_ACTIVATE',location.href);
+          const requested=player.play();
+          if(requested && typeof requested.then==='function'){
+           Promise.resolve(requested).catch(e=>state.errors.push((e?.name||'Error')+': '+(e?.message||String(e))));
+          }
+         }
+        }
+       }catch(e){state.errors.push('JW frame activation: '+(e?.message||String(e)));}
+      }
+      // Give JW Player time to attach its source after activation. Avoid
+      // counteracting it with an immediate empty-video pause/play.
+      if(state.jwActivationAt && Date.now()-state.jwActivationAt<5000)jwActivationPending=true;
+      const stalledWithoutSource=!el.paused && !el.currentSrc &&
+       !el.getAttribute('src') && el.readyState===0 &&
+       Date.now()-state.firstSeen>=4500 && !state.sourceRecoveryDone;
+      if(stalledWithoutSource && !jwActivationPending){
+       state.sourceRecoveryDone=true;
+       try{el.pause();console.info('[HIB RC114] SOURCELESS_PAUSE_PLAY_RETRY',location.origin);}catch(_){}
+      }
+      if(initialPauseElapsed && !jwActivationPending && state.attempts<3 && (el.paused || stalledWithoutSource) && Date.now()-state.lastTry>=2200){
+       state.attempts++;state.lastTry=Date.now();
+       const p=Object.values(window.videojs?.getPlayers?.()||{}).find(p=>{try{return p?.el?.()?.contains(el);}catch(_){return false;}});
+       try{const result=p?.play?.()??el.play();
+        Promise.resolve(result).catch(e=>{state.errors.push((e?.name||'Error')+': '+(e?.message||String(e)));});}
+       catch(e){state.errors.push((e?.name||'Error')+': '+(e?.message||String(e)));}
+      }
+      add(el.currentSrc,'currentSrc',el);add(el.getAttribute('src'),'src',el);
+      for(const child of el.querySelectorAll('source[src]'))add(child.getAttribute('src'),'source',el);
+     }
+     // Video MSE players expose blob: URLs. The HLS manifest is in resource timing.
+     for(const item of performance.getEntriesByType('resource')){
+      try{const u=new URL(item.name);if(/^https?:$/.test(u.protocol)&&/\.m3u8$/i.test(u.pathname))add(u.href,'hlsManifest',hibMainEl);}catch(_){}
+     }
+     // RC297: the Freedom/Flowplayer WordPress plugin keeps the episode in data-item; ads may play first in the same <video>.
+     for(const root of document.querySelectorAll('.flowplayer[data-item]')){
+      try{const cfg=JSON.parse(root.getAttribute('data-item')||'null');
+       for(const s of ((cfg&&cfg.sources)||[]))if(s&&s.src&&/mp4|webm|m3u8|mpd/i.test(String(s.type||'')+' '+String(s.src)))add(s.src,'configSource',root);
+      }catch(_){}
+     }
+     for(const m of (window.__hibNetMedia||[]))add(m,'netMedia',null);
+     try{const pwj=window.wrappedJSObject||window;if(typeof pwj.jwplayer==='function'){const jp=pwj.jwplayer();const pl=(jp&&jp.getPlaylist&&jp.getPlaylist())||[];
+      for(const it of Array.from(pl)){for(const so of Array.from((it&&it.sources)||[])){if(so&&so.file)add(String(so.file),'configSource',null);}if(it&&it.file)add(String(it.file),'configSource',null);}}}catch(_){}
+     try{let sn=0;const seenS=new Set();const bs=String.fromCharCode(92);
+      for(const sc of document.scripts){const raw=sc.textContent||'';if(raw.length<30||raw.length>900000)continue;
+       const tx=raw.split(bs+'/').join('/');
+       for(const m of (tx.match(/https?:[/][/][A-Za-z0-9%_.~:/?#@!$&()*+,;=-]+/g)||[])){
+        if(sn>=30)break;
+        try{const u=new URL(m);if(/[.](?:mp4|m3u8|webm|mpd)$/i.test(u.pathname)&&!seenS.has(u.href)){seenS.add(u.href);add(u.href,'scriptSource',null);sn++;}}catch(_){}
+       }}
+     }catch(_){}
+     // RC295: playlists seen on the network. some players serve HLS from an extension-less path, so
+     // anything without a known extension must really start with #EXTM3U before it counts.
+     const netOk=window.__hibNetVerified||(window.__hibNetVerified=new Map());
+     for(const m of (window.__hibNetManifests||[])){
+      let ok=true;
+      try{const pn=new URL(m).pathname.toLowerCase();
+       if(!pn.endsWith('.m3u8')&&!pn.endsWith('.mpd')){
+        if(!netOk.has(m)){let good=false;
+         try{const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),3500);
+          const r=await fetch(m,{credentials:'same-origin',cache:'force-cache',signal:ctl.signal});clearTimeout(tm);
+          if(r.ok){const txt=(await r.text()).slice(0,64);good=txt.trimStart().startsWith('#EXTM3U');}}catch(_){}
+         netOk.set(m,good);}
+        ok=netOk.get(m);}
+      }catch(_){ok=false;}
+      if(ok)add(m,'hlsManifest',hibMainEl);
+     }
+     for(const p of Object.values(window.videojs?.getPlayers?.()||{})){
+      try{const el=p?.el?.()?.querySelector('video,audio');add(p?.currentSrc?.(),'videojs',el);}catch(_){}}
+     // Discover subtitle URLs from real player elements and resource requests.
+     // URLs remain in memory only during this popup's discovery session.
+     const captionUrls=new Set();
+     const addCaption=raw=>{try{const u=new URL(raw,location.href);if(u.protocol==='https:' && (/[.](?:vtt|srt|ass|ssa)$/i.test(u.pathname)||/(?:caption|subtitle|[/]subs?[/])/i.test(u.pathname)))captionUrls.add(u.href);}catch(_){}};
+     for(const t of document.querySelectorAll('track[src],a[href*=".vtt"],source[type="text/vtt"]'))addCaption(t.src||t.href||t.getAttribute('src'));
+     for(const e of performance.getEntriesByType('resource'))addCaption(e.name);
+     return {href:location.href,visibility:document.visibilityState,ready:document.readyState,
+      captionUrls:[...captionUrls].slice(0,30),
+      playerError:(()=>{try{const pe=document.querySelector('.vjs-error-display .vjs-modal-dialog-content,.vjs-error-display,.jw-error-msg,.jw-error .jw-title-primary,[class*="player-error"],[class*="video-error"]');return pe&&pe.getBoundingClientRect().width>0?String(pe.textContent||'').replace(/ +/g,' ').trim().slice(0,160):'';}catch(e){return '';}})(),
+      videoCount:els.length,sources:items,playback:els.map(el=>({
+       attempts:el.__hibRC73?.attempts||0,errors:[...(el.__hibRC73?.errors||[]),...(el.error?['MediaError code '+el.error.code+': '+String(el.error.message||'').slice(0,80)]:[])],
+       advanced:el.__hibRC73?.maxAdvance||0,paused:el.paused,readyState:el.readyState}))};
+    })()`});}
+    catch(e){errors.add(String(e));continue;}
+    // RC75: run the existing diagnostics in every accessible frame while the
+    // actual popup player is alive. Preserve their results for later inspection.
+    if(++tick%4===0){
+     const snapshot={atMs:Date.now()-began,frames:[]};
+     for(const [name,file] of [['player','diag_player.js'],['sources','diag_sources.js']]){
+      try{
+       const diagRows=await browser.tabs.executeScript(probe,{allFrames:true,file});
+       snapshot[name]=(diagRows||[]).map(x=>x?.result??x);
+      }catch(e){snapshot[name+'Error']=String(e);errors.add(name+': '+String(e));}
+     }
+     diagnosticSnapshots.push(snapshot);
+     if(diagnosticSnapshots.length>25)diagnosticSnapshots.shift();
+    }
+    if(!hibAutoplayChecked&&Date.now()-began>1000){hibAutoplayChecked=true;
+     try{const okAt=hibRc312AutoplayOk.get(target.origin);
+      if(!(okAt&&Date.now()-okAt<10*60*1000)){
+       const pr=await browser.tabs.executeScript(probe,{code:hibRc111PlaybackCode});const st=pr?.[0]?.result??pr?.[0];
+       if(st==='allowed')hibRc312AutoplayOk.set(target.origin,Date.now());
+       else if(st==='NotAllowedError'){
+        rc114PermissionState='NotAllowedError';hibForcePermission=true;
+        const blockedAnswer={...last,ok:false,verified:false,autoplayPermission:{status:'site-allow-required',requestedOrigin:target.origin},popupAttempted:true};
+        console.info('[HIB RC346]',{status:'AUTOPLAY_BLOCKED_PREFLIGHT',origin:target.origin});
+        if(msg.permissionRetry||(hibPermTried.has(target.origin)&&Date.now()-hibPermTried.get(target.origin)<600000))return blockedAnswer;
+        const after=await hibRc108PermissionFlow({target,priorWindow,priorTab,store:hibStore,closeScan:async()=>{
+          if(popup?.id!=null)await browser.windows.remove(popup.id).catch(()=>{});
+          else if(popup?.isTab&&hibGuardProbe!==null)await browser.tabs.remove(hibGuardProbe).catch(()=>{});
+          popup=null;}});
+        if(after==='allowed')return {...last,ok:false,verified:false,autoplayPermission:{status:'allowed-after-close',requestedOrigin:target.origin},popupAttempted:true};
+        if(after==='NotAllowedError')return blockedAnswer;
+        return {...last,ok:false,verified:false,autoplayPermission:{status:'recheck-after-close',requestedOrigin:target.origin,probeResult:after},popupAttempted:true};
+       }
+      }
+     }catch(_){}
+    }
+    const frames=rows.map(x=>x?.result??x).filter(Boolean);
+    framesExamined=Math.max(framesExamined,frames.length);
+    for(const f of frames){
+     for(const u of f.captionUrls||[])popupDomCaptions.add(u);
+     try { const u=new URL(f.href);if(/^https?:$/.test(u.protocol))observedOrigins.add(u.origin); }catch(_){}
+     for(const p of f.playback||[])for(const e of p.errors||[])errors.add(e);
+     if(f.playerError)errors.add('PlayerError: '+f.playerError);
+     for(const item of f.sources||[]){
+      if(!history.has(item.url))history.set(item.url,{...item,frame:f.href,firstSeenMs:Date.now()-began,seenAtWall:Date.now(),
+       observations:0,maxMediaTime:0,maxAdvance:0,playAttempts:0,visibility:f.visibility});
+      const h=history.get(item.url);h.observations++;
+      h.readyState=Math.max(h.readyState||0,item.readyState||0);
+      h.maxDuration=Math.max(h.maxDuration||0,item.duration||0);
+      h.maxMediaTime=Math.max(h.maxMediaTime,item.currentTime||0);
+      h.lastSeenMs=Date.now()-began;
+      for(const p of f.playback||[]){h.maxAdvance=Math.max(h.maxAdvance,p.advanced||0);h.playAttempts=Math.max(h.playAttempts,p.attempts||0);}
+     }
+    }
+    // RC448 diagnostics: one line every ~2 s describing what the scan sees (visible in HIB_SCANLOG.txt)
+    if(!window.__hibTickLog||Date.now()-window.__hibTickLog>1900){window.__hibTickLog=Date.now();
+     console.info('[HIB RC448 TICK]',{t:Date.now()-began,clicks:hibClicks,tries:hibClickTries,frames:frames.length,hist:[...history.values()].slice(0,4).map(h=>({k:h.kind,u:String(h.url).slice(-26),adv:Math.round((h.maxAdvance||0)*10)/10,rs:h.readyState,w:h.w,h:h.h}))});}
+    /* RC495: a manifest seen for 2.5 s is checked once in the background (hibManifestAlive); a verified one may be accepted below after 6 s if nothing else has moved. */
+    for(const h of history.values()){
+     if(h.kind!=='hlsManifest'||h.mTried)continue;if((Date.now()-began)-(h.firstSeenMs||0)<2500)continue;
+     h.mTried=true;hibManifestAlive(h.url).then(ok=>{h.mVerified=ok;console.info('[HIB RC495]',{status:'MANIFEST_CHECK',ok,url:String(h.url).slice(-50),atMs:Date.now()-began});}).catch(()=>{});
+    }
+    // RC106: Autoplay denial is not media failure. Open an actionable episode tab
+    // so the user can change Firefox/Floorp's site-specific permission.
+    // Browser WebExtensions cannot programmatically grant autoplay permission.
+    const permissionDenied=[...errors].some(e=>/NotAllowedError|autoplay.*(?:denied|block)|not allowed by the user agent/i.test(e));
+    // RC114: a previous frame's autoplay error is not proof the episode
+    // origin is blocked. An explicit successful origin playback probe wins.
+    // Probe failure/inconclusive is not interpreted as a new denial.
+    if(permissionDenied && tick>=2){
+      try{
+        const probeRows=await browser.tabs.executeScript(probe,{code:hibRc111PlaybackCode});
+        rc114PermissionState=probeRows?.[0]?.result||'unknown';
+      }catch(e){console.info('[HIB RC114] PERMISSION_PROBE_INCONCLUSIVE',String(e));}
+      console.info('[HIB RC114] EFFECTIVE_AUTOPLAY',rc114PermissionState,target.origin);
+    }
+    if(((permissionDenied && tick>=2)||hibForcePermission) && rc114PermissionState==='NotAllowedError'){
+     const blockedAnswer2={...last,ok:false,verified:false,autoplayPermission:{status:'site-allow-required',requestedOrigin:target.origin},autoplayBlocked:true,popupAttempted:true};
+     // RC420: RESTORED. Autoplay detected as blocked -> open the site's tab with the permission tip (top right) so the user can pick
+     // "Allow Audio and Video" from the autoplay/permissions icon next to the shield, then Dismiss; HIB verifies and resumes. This branch used to
+     // just return the "blocked" answer (bottom-right notice only), which is why the tab and the icon stopped appearing. Same 10-minute
+     // once-per-origin guard as the preflight branch above, so it can never loop.
+     if(msg.permissionRetry||(hibPermTried.has(target.origin)&&Date.now()-hibPermTried.get(target.origin)<600000))return blockedAnswer2;
+     const after2=await hibRc108PermissionFlow({target,priorWindow,priorTab,store:hibStore,closeScan:async()=>{
+       if(popup?.id!=null)await browser.windows.remove(popup.id).catch(()=>{});
+       else if(popup?.isTab&&hibGuardProbe!==null)await browser.tabs.remove(hibGuardProbe).catch(()=>{});
+       popup=null;}});
+     if(after2==='allowed')return {...last,ok:false,verified:false,autoplayPermission:{status:'allowed-after-close',requestedOrigin:target.origin},popupAttempted:true};
+     if(after2==='NotAllowedError')return blockedAnswer2;
+     return {...last,ok:false,verified:false,autoplayPermission:{status:'recheck-after-close',requestedOrigin:target.origin,probeResult:after2},popupAttempted:true};
+    }
+    /* the autoplay-permission tab was removed: nothing in the detection path opens or activates a tab */
+    last={framesExamined,videoCount:frames.reduce((n,f)=>n+(f.videoCount||0),0),
+     sourceAttached:history.size>0,focusedPopup:true,openerTabId:priorTab};
+    // RC76: early handoff to the *originating hover job*. Require the same
+    // video-bound URL on consecutive observations, and never select a URL
+    // explicitly identified as advertising. This is extraction, not verification.
+    // RC295: an ad banner player (e.g. a 360x70 ad iframe) is never the episode.
+    // UNSUPPORTED MODE: the player's play() was rejected as "not supported" (a codec / container this browser cannot decode) and nothing has
+    // advanced. From 5 s on, a candidate URL the player exposes is accepted WITHOUT playback (it is handed to the HIB player, not played here);
+    // from 8 s with no candidate the scan stops instead of spinning on.
+    const hibUnsupported=[...errors].some(e=>/NotSupportedError|not suitable|SRC_NOT_SUPPORTED|not supported|unsupported|did not support|MediaError code [34]|MEDIA_ERR_(?:DECODE|SRC_NOT_SUPPORTED)/i.test(e));
+    const hibNoneAdvanced=![...history.values()].some(x=>x.maxAdvance>=1);
+    const hibUnsupportedMode=hibUnsupported&&hibNoneAdvanced&&Date.now()-began>=5000;
+     // RC453: an ADAPTIVE (DASH / HLS) page player that is fully loaded and big but does not advance in this background window (the site's own player needs a real
+     // gesture; hstream) is accepted after 8 s, like the 'unsupported' case: the manifest is handed to the HIB player, which plays it with dash.js / hls.js.
+     const hibIdleReady=h=>hibNoneAdvanced&&Date.now()-began>=8000&&(h.kind==='currentSrc'||h.kind==='source')&&/\.(?:mpd|m3u8)(?:[?#]|$)/i.test(String(h.url).split('?')[0]+'')&&(h.readyState||0)>=3&&h.w*h.h>=80000;
+    const usable=[...history.values()].filter(h=>
+      !hibRc297LooksLikeAd(h) &&
+      (h.observations>=1) && ((h.maxAdvance>=1 && h.maxMediaTime>=1 && h.readyState>=2) || (h.kind==='hlsManifest'&&h.mVerified===true&&Date.now()-began>=6000&&hibNoneAdvanced) || (hibUnsupportedMode&&/^(?:currentSrc|src|videojs|source|configSource|scriptSource|netMedia)$/.test(h.kind)) || hibIdleReady(h) || hibKnownHit(h) || ((h.kind==='configSource'||h.kind==='netMedia'||h.kind==='scriptSource') && [...history.values()].some(x=>x.maxAdvance>=1&&x.maxMediaTime>=1&&x.readyState>=2))) &&
+      (Date.now()-began-h.firstSeenMs)>=((h.kind==='configSource'||hibRc297SlugScore(h.url,target)>=2)?250:1000) && /^(?:currentSrc|src|videojs|source|hlsManifest|configSource|netMedia|scriptSource)$/.test(h.kind) &&
+      !/(?:^|[\/_-])(?:ad|ads|advert|advertising|promo|preroll)(?:[\/_-]|$)/i.test(new URL(h.url).pathname));
+    let usablePref=usable;
+    try{
+     // (no 'own frame first' rule: many sites keep the real player in an iframe and put native ads in the page itself)
+     // The player's own configured episode source beats whatever is playing (ads often play first).
+     const cfg=usablePref.filter(h=>h.kind==='configSource');
+     if(cfg.length){
+      const best=[...cfg].sort((a,b)=>hibRc297Res(b.url)-hibRc297Res(a.url))[0];
+      if(await hibRc297RangeOk(best.url)){usablePref=[best];console.info('[HIB RC297]',{status:'CONFIG_SOURCE_PREFERRED',url:best.url});}
+      else{usablePref=usablePref.filter(h=>h.kind!=='configSource');console.warn('[HIB RC297]',{status:'CONFIG_SOURCE_NOT_PLAYABLE',url:best.url});}
+     }
+     // A source that carries the page's own slug / id is the episode, even while an ad plays first.
+     const matched=usablePref.filter(h=>h.kind!=='hlsManifest'&&h.kind!=='configSource'&&hibRc297SlugScore(h.url,target)>=2);
+     if(matched.length&&!usablePref.some(h=>h.kind==='configSource')){
+      // Try every matching source in turn (a site may list a dead mirror and a live one); best match / resolution first.
+      const rankedMatches=[...matched].sort((a,b)=>hibRc297SlugScore(b.url,target)-hibRc297SlugScore(a.url,target)||hibRc297Res(b.url)-hibRc297Res(a.url));
+      let bestMatch=null;
+      const rangeResults=await Promise.all(rankedMatches.slice(0,4).map(cand=>hibRc297RangeOk(cand.url)));
+      bestMatch=rankedMatches.slice(0,4).find((cand,i)=>rangeResults[i])||null;
+      if(bestMatch){usablePref=[bestMatch];console.info('[HIB RC297]',{status:'PAGE_MATCHED_SOURCE_PREFERRED',url:bestMatch.url,score:hibRc297SlugScore(bestMatch.url,target),elapsedMs:Date.now()-began});}
+      else{usablePref=usablePref.filter(h=>h.kind!=='netMedia');console.warn('[HIB RC297]',{status:'PAGE_MATCHED_SOURCE_NOT_REACHABLE',tried:rankedMatches.slice(0,4).map(h=>h.url)});}
+     }
+     const nonManifest=usablePref.filter(h=>h.kind!=='hlsManifest');
+     const playingNow=nonManifest.filter(h=>h.kind==='currentSrc');
+     if(!usablePref.some(h=>h.kind==='hlsManifest')&&playingNow.length===1&&nonManifest.length>1){
+      usablePref=playingNow;
+      console.info('[HIB RC297]',{status:'PLAYING_SOURCE_PREFERRED',url:playingNow[0].url});
+     }
+     // Still several different videos (a native ad next to the real player): the main player is the largest
+     // visible video, in any frame.
+     const rivals=usablePref.filter(h=>h.kind!=='hlsManifest'&&h.kind!=='configSource');
+     if(rivals.length>1&&!usablePref.some(h=>h.kind==='hlsManifest'||h.kind==='configSource')){
+      const bySize=[...rivals].sort((a,b)=>(b.w*b.h)-(a.w*a.h));
+      const first=(bySize[0].w*bySize[0].h)||0,second=(bySize[1].w*bySize[1].h)||0;
+      if(first>0&&first>=1.5*second){usablePref=[bySize[0]];console.info('[HIB RC297]',{status:'LARGEST_VIDEO_PREFERRED',url:bySize[0].url,area:first,runnerUp:second});}
+     }
+    }catch(_){}
+    const manifests=usablePref.filter(h=>h.kind==='hlsManifest');
+    const primary=manifests.filter(h=>!/(?:\/audio\/|\/media-\d+\/|\/segment-)/i.test(new URL(h.url).pathname));
+    let primarySel=primary;
+    if(primary.length>1){
+     const seen=[...popupNetManifests];
+     const rank=u=>{const i=seen.indexOf(u);return i<0?1e9:i;};
+     primarySel=[[...primary].sort((a,b)=>rank(a.url)-rank(b.url))[0]];
+     console.info('[HIB RC295]',{status:'MULTIPLE_PLAYLISTS_FIRST_OBSERVED_CHOSEN',count:primary.length,url:primarySel[0].url});
+    }
+    let chosen=primarySel.length===1?primarySel:usablePref.filter(h=>h.kind!=='hlsManifest');
+    if(chosen.length&&chosen.every(h=>h.kind==='scriptSource')){
+     const ranked=[...chosen].sort((a,b)=>hibRc297Res(b.url)-hibRc297Res(a.url)||b.url.length-a.url.length).slice(0,3);
+     let okOne=null;for(const cand of ranked){if(await hibRc297RangeOk(cand.url)){okOne=cand;break;}}
+     chosen=okOne?[okOne]:[];
+     if(okOne)console.info('[HIB RC346]',{status:'SCRIPT_SOURCE_CHOSEN',url:okOne.url});
+    }else chosen=chosen.filter(h=>h.kind!=='scriptSource');
+    const distinct=[...new Set(chosen.map(h=>h.url))];
+    let pickUrl=distinct.length===1?distinct[0]:null;
+    if(!pickUrl&&distinct.length>1){
+     if(!usableSince)usableSince=Date.now();
+     if(Date.now()-usableSince>2500){
+      const score=h=>(h.maxAdvance>0?1000:0)+(h.kind==='currentSrc'?500:0)+Math.min(h.maxDuration||0,7200)+((h.w||0)*(h.h||0))/1000-(h.firstSeenMs||0)/1000;
+      const best=[...chosen].sort((a,b)=>score(b)-score(a))[0];pickUrl=best.url;
+      console.info('[HIB RC346]',{status:'MULTIPLE_CANDIDATES_BEST_CHOSEN',count:distinct.length,url:pickUrl,elapsedMs:Date.now()-began});
+     }
+    }
+    if(!pickUrl&&hibUnsupportedMode&&Date.now()-began>=8000){
+     console.info('[HIB RC346]',{status:'UNSUPPORTED_VIDEO_NO_SOURCE',elapsedMs:Date.now()-began,errors:[...errors].slice(0,3)});
+     return {...last,ok:false,landing:true,reason:'unsupported-video',verified:false,episodeCount:0,popupAttempted:true,error:null};
+    }
+    if(pickUrl){
+      const picked=chosen.find(h=>h.url===pickUrl);
+      if(hibUnsupportedMode&&!(picked.maxAdvance>=1))console.info('[HIB RC346]',{status:'UNSUPPORTED_VIDEO_SOURCE_HANDED_OVER',url:picked.url,kind:picked.kind,elapsedMs:Date.now()-began});
+      const hibFormat=/[.]m3u8(?:$|[?#])/i.test(picked.url)||picked.kind==='hlsManifest'||/(?:^|\/)hls(?:\/|$)/i.test(new URL(picked.url).pathname)?'hls':/[.]mpd(?:$|[?#])/i.test(picked.url)?'dash':'direct';
+      const result={...last,mediaFormat:hibFormat,rc150DetectedEngine:hibRc150Probe.engine,ok:true,verified:true,playbackUnverified:!!(hibUnsupportedMode&&!(picked.maxAdvance>=1)),url:picked.url,candidateUrl:picked.url,
+       candidateCount:1,candidates:[picked],extractionOnly:true,
+       diagnosticSnapshots,autoplayErrors:[...errors],
+       error:null};
+      await browser.storage.local.set({hibRc75LastDiscovery:result}).catch(()=>{});
+      await hibRc78SaveProfile(target.hostname,picked.url,picked.frame,'rendered-popup/live-video').catch(e=>console.warn('[HIB RC78] PROFILE_SAVE_FAILED',String(e)));
+      try{let eng=hibRc150Probe.engine;
+       if(eng==='custom'){let cross=false;try{cross=new URL(picked.frame).origin!==target.origin;}catch(_){}eng=cross?'iframe':'html5';}
+       const fmt=hibFormat;
+       await HIBRC150.recordVerified(target.hostname,target.pathname,eng,fmt);
+       console.info('[HIB RC346]',{status:'PLAYER_TYPE_STORED',host:target.hostname,engine:eng,format:fmt});}catch(_){}
+      // RC126: only an actually played source receives a narrowly scoped
+      // exact-URL referrer hint. Do not copy cookies or authentication headers.
+      try {
+       const source=new URL(picked.url),frame=new URL(picked.frame);
+       /* RC459: ANY https frame that played the file is the right Referer for it (a video served to an embed on another site: page -> embed host -> media host needs the EMBED's address, not the page's). */
+       if(source.protocol==='https:' && frame.protocol==='https:'){
+        hib101MediaOriginHints.set(source.href,{referrer:frame.href,until:Date.now()+30*60*1000,source:'verified-popup'});
+        console.info('[HIB RC126] VERIFIED_MEDIA_REFERER_HINT',{mediaHost:source.hostname,referrerHost:frame.hostname});
+       }
+      }catch(_){}
+      console.log('[HIB TEST RC77] POPUP_SOURCE_CAPTURED',{
+       page:target.pathname,frame:picked.frame,source:picked.url,verified:true,maxAdvance:picked.maxAdvance});
+      // RC119: no diagnostic linger; collect available subtitle tracks immediately.
+      // Closure is handled in finally after the subtitle handoff.
+      // VTT is frequently requested after the video begins rather than with the HLS master.
+      // Re-read accessible frames once before popup teardown.
+      try{
+       const tracks=msg.rc276Bridge?[]:await browser.tabs.executeScript(probe,{allFrames:true,code:`(() => {
+        const urls=new Set();const add=x=>{try{const u=new URL(x,location.href);if(u.protocol==='https:' && (/[.](?:vtt|srt|ass|ssa)$/i.test(u.pathname)||/(?:caption|subtitle|[/]subs?[/])/i.test(u.pathname)))urls.add(u.href);}catch(_){}};
+        for(const t of document.querySelectorAll('track[src],a[href*=".vtt"],source[type="text/vtt"]'))add(t.src||t.href||t.getAttribute('src'));
+        for(const e of performance.getEntriesByType('resource'))add(e.name);
+        return [...urls].slice(0,30);
+       })()`});
+       for(const row of tracks||[])for(const u of (row?.result??row??[]))popupDomCaptions.add(u);
+      }catch(_){}
+      const captions=msg.rc276Bridge?null:await hibExtractObservedVtt(popupVtt,target.href,[...popupDomCaptions],probe);
+      if(captions)result.subtitles=captions;
+      console.info('[HIB RC105] POPUP_VTT_HANDOFF',{network:popupVtt.urls.size,dom:popupDomCaptions.size,ready:!!captions});
+      try{hibRc329SubCandidates.set(picked.url,{urls:[...new Set([...popupDomCaptions,...popupVtt.urls])],fonts:[...popupFonts],page:target.href,at:Date.now()});if(hibRc329SubCandidates.size>40)hibRc329SubCandidates.delete(hibRc329SubCandidates.keys().next().value);}catch(_){}
+      return result;
+    }
+   }
+   const candidates=[...history.values()];
+   // RC114: only an explicit denial on the target origin is permission-blocked.
+   // No source/readyState=0 and legacy errors are media-initialization failures.
+   const blocked=rc114PermissionState==='NotAllowedError';
+   // Firefox's WebExtension API cannot write site autoplay permissions.
+   // Never claim a temporary grant or silently modify browser-wide settings.
+   const autoplayPermission={status:blocked?'site-allow-required':'undetermined',
+    automaticGrantAvailable:false,requestedOrigin:target.origin,
+    observedOrigins:[...observedOrigins],
+    manualSetting:'Page Info > Permissions > Autoplay > Allow Audio and Video',
+    retainedGrant:false,rolledBack:false,
+    note:'No autoplay permission was changed by HIB. Site permission requires Firefox UI or an independently installed privileged helper.'};
+   const result={...last,ok:false,verified:false,candidateCount:candidates.length,candidates,
+    diagnosticSnapshots,autoplayErrors:[...errors],autoplayPermission,
+    candidateUrl:candidates.length===1?candidates[0].url:null, popupAttempted:true,
+    error:'popup discovery exhausted; do not open a legacy background tab'};
+   // Saved across popup closure; user can inspect without racing the tab.
+   await browser.storage.local.set({hibRc75LastDiscovery:result}).catch(()=>{});
+   console.log('[HIB TEST RC75] POPUP_DIAGNOSTICS_SAVED',result);
+   return result;
+  }catch(e){return {...last,ok:false,autoplayErrors:[...errors],autoplayPermission:{status:'not-modified',automaticGrantAvailable:false,requestedOrigin:target.origin},error:String(e)};}
+  finally{
+   // Reserve discovery exclusively for the same card's immediate retry.
+   // Timeout releases the lock if the initiating tab disappeared.
+   if(hibRc111Handoff){
+    if(hibRc111HandoffTimer!==null)clearTimeout(hibRc111HandoffTimer);
+    hibRc111HandoffTimer=setTimeout(()=>{
+     hibRc111Handoff=null;hibRc108Busy=false;hibRc111HandoffTimer=null;
+    },12000);
+   }else hibRc108Busy=false;
+   if(popupVttListener)browser.webRequest.onBeforeRequest.removeListener(popupVttListener);
+   if(popupFontListener)browser.webRequest.onBeforeRequest.removeListener(popupFontListener);
+   if(popupManifestListener)browser.webRequest.onBeforeRequest.removeListener(popupManifestListener);
+   if(popupMediaListener)browser.webRequest.onBeforeRequest.removeListener(popupMediaListener);
+   if(hibPopListener)browser.tabs.onCreated.removeListener(hibPopListener);
+   if(hibGuardProbe!==null)hibScanProbes.delete(hibGuardProbe);
+   try{if(hibGuardReg)await hibGuardReg.unregister();}catch(_){}
+   hibRc343ScheduleLogWrite();
+   if(hibStrayUpd)browser.tabs.onUpdated.removeListener(hibStrayUpd);
+   if(hibStrayAct)browser.tabs.onActivated.removeListener(hibStrayAct);
+   // The scan tab is closed as soon as the scan ends; the browser then returns to the tab it was opened from.
+   if(popup?.isTab&&hibGuardProbe!==null)await browser.tabs.remove(hibGuardProbe).catch(()=>{});
+   // RC119: release the temporary pop-under on success, failure, or cancellation.
+   if(msg.rc276Bridge && popup?.id!=null){
+      // TEST: retain the actual browser window, independent of the discovery busy lock.
+      hibRc276Windows.set(popup.id,{owner:priorTab,pageUrl:target.href,resultAt:Date.now()});
+      console.info('[HIB RC276]',{status:'RESOLVER_RETAINED_PENDING_DELIVERY',windowId:popup.id});
+    }else if(popup?.id!=null)await browser.windows.remove(popup.id).catch(()=>{});
+   // RC81: Do not activate or re-focus any window/tab on cleanup.
+    // The user's focus and active tab are never changed by this resolver.
+  }
+ })();
+};
+browser.runtime.onMessage.addListener(hibRc133ResolveMedia);
+
+/* RC78: Persist a successful player METHOD, never short-lived signed media URLs. */
+const HIB_RC78_PROFILE_KEY = 'hibRc78VideoProfiles';
+function hibRc78Format(url) {
+ try { const u=new URL(url); const x=u.pathname.toLowerCase();
+  if(x.endsWith('.m3u8'))return 'HLS';
+  if(x.endsWith('.mpd'))return 'DASH';
+  if(/\.(?:mp4|m4v|webm|ogg)$/.test(x))return x.split('.').pop().toUpperCase();
+  return 'HTML5 (extensionless)';
+ } catch(_){return 'Unknown';}
+}
+async function hibRc78SaveProfile(site, mediaUrl, frame, method) {
+ const host=hibV216NormalizeSite(site);
+ if(!host || !/^https?:\/\//.test(mediaUrl))return null;
+ const data=await browser.storage.local.get(HIB_RC78_PROFILE_KEY);
+ const profiles=data[HIB_RC78_PROFILE_KEY]||{};
+ const profile={site:host,type:hibRc78Format(mediaUrl),method:method||'rendered-popup',
+  frameOrigin:(()=>{try{return new URL(frame).origin}catch(_){return ''}})(),
+  windowMode:'foreground-popup',verifiedAt:new Date().toISOString()};
+ profiles[host]=profile;
+ await browser.storage.local.set({[HIB_RC78_PROFILE_KEY]:profiles});
+ return profile;
+}
+browser.runtime.onMessage.addListener(message=>{
+ if(message?.type==='hib-rc78-profiles-get')
+  return browser.storage.local.get(HIB_RC78_PROFILE_KEY).then(x=>({ok:true,profiles:x[HIB_RC78_PROFILE_KEY]||{}}));
+ if(message?.type==='hib-rc78-scan-episode')return (async()=>{
+  const u=new URL(message.url);if(!/^https?:$/.test(u.protocol))throw Error('Unsupported site');
+  const response=await browser.runtime.sendMessage({type:'hib-test-global-rendered-media',pageUrl:u.href});
+  return {ok:!!response?.ok,sourceFound:!!response?.candidateUrl,
+   profile:response?.ok?(await browser.storage.local.get(HIB_RC78_PROFILE_KEY))[HIB_RC78_PROFILE_KEY]?.[u.hostname]||null:null,
+   error:response?.error||null};
+ })().catch(e=>({ok:false,error:String(e)}));
+ return undefined;
+});
+
+/* RC74: per-origin autoplay permission preflight only; no unsupported permission mutation. */
+
+// RC92: Managed, verified trace downloads, with explicit failure reporting.
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-rc91-download-player-trace')return undefined;
+ return (async()=>{
+  if(!String(sender?.url||'').startsWith(browser.runtime.getURL('')))throw Error('Export denied: not an extension frame');
+  const report=msg.report;
+  if(!report||!['hib-player-trace-v1','hib-player-trace-v2'].includes(report.schema)||!Array.isArray(report.history))throw Error('Invalid trace report: '+String(report?.schema||'missing schema'));
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  const filename='HIB_Player_Trace_'+stamp+'.json';
+  const payload=JSON.stringify({...report,keyRequestContext:{capturedAt:new Date().toISOString(),requests:hibRc98KeyRequests.slice(-25)}},null,2);
+  // A Blob URL avoids encoded data: URLs growing several megabytes with large traces.
+  const url=URL.createObjectURL(new Blob([payload],{type:'application/json'}));
+  let id=null, timer=null, listener=null;
+  try{
+   const finish=new Promise((resolve,reject)=>{
+    timer=setTimeout(()=>reject(Error('Download did not complete within 30 seconds')),30000);
+    listener=delta=>{
+     if(id===null||delta.id!==id)return;
+     if(delta.state?.current==='complete')resolve();
+     else if(delta.error?.current||delta.state?.current==='interrupted')reject(Error(delta.error?.current||'Download interrupted'));
+    };
+    browser.downloads.onChanged.addListener(listener);
+   });
+   id=await browser.downloads.download({url,filename,saveAs:false,conflictAction:'uniquify'});
+   // Check the completed state too: the event can precede receipt of the download ID.
+   const existing=await browser.downloads.search({id});
+   const item=existing&&existing[0];
+   if(item?.state==='interrupted')throw Error(item.error||'Download interrupted');
+   if(item?.state!=='complete')await finish;
+   const verified=(await browser.downloads.search({id}))[0];
+   if(!verified||verified.state!=='complete')throw Error('File completion could not be verified');
+   console.info('[HIB RC92] PLAYER_TRACE_DOWNLOAD_VERIFIED',{id,path:verified.filename,bytes:payload.length});
+   return {ok:true,id,filename,path:verified.filename};
+  }catch(e){
+   console.error('[HIB RC92] PLAYER_TRACE_DOWNLOAD_FAILED',String(e));
+   return {ok:false,error:String(e)};
+  }finally{
+   if(timer!==null)clearTimeout(timer);
+   if(listener)browser.downloads.onChanged.removeListener(listener);
+   // Retain Blob URL long enough for the browser download process to finish releasing it.
+   setTimeout(()=>URL.revokeObjectURL(url),60000);
+  }
+ })().catch(e=>({ok:false,error:String(e)}));
+});
+
+
+// RC99+RC77: Set correct Referer AND inject session cookies for signed AES-128 key
+// requests made by HIB's extension iframe. The key server requires a valid session
+// cookie — without it the server returns a PNG error page instead of the 16-byte key.
+browser.webRequest.onBeforeSendHeaders.addListener(d=>{
+ try{
+  const u=new URL(d.url);
+  if(u.protocol!=='https:'||!/(?:^|\/)(?:key|[^\/]+\.key|key\.bin)$/i.test(u.pathname))return {};
+  const initiator=String(d.originUrl||d.documentUrl||'');
+  if(!initiator.startsWith(browser.runtime.getURL('')))return {};
+  return browser.cookies.getAll({url:u.origin+'/',firstPartyDomain:null})
+   .catch(()=>browser.cookies.getAll({url:u.origin+'/'}))
+   .then(cookies=>{
+    const headers=(d.requestHeaders||[]).slice();
+    const set=(name,val)=>{const h=headers.find(x=>x.name.toLowerCase()===name.toLowerCase());if(h)h.value=val;else headers.push({name,value:val});};
+    set('Referer',(()=>{const dom=h=>h.split('.').slice(-2).join('.');for(const [,hint] of hib101MediaOriginHints){try{if(Date.now()<hint.until&&dom(new URL(hint.referrer).hostname)===dom(u.hostname))return hint.referrer;}catch(_){}}return u.origin+'/';})());
+    if(cookies.length){
+     const ci=headers.findIndex(h=>h.name.toLowerCase()==='cookie');
+     if(ci>=0)headers.splice(ci,1);
+     headers.push({name:'Cookie',value:cookies.map(c=>c.name+'='+c.value).join('; ')});
+    }
+    console.info('[HIB RC77] KEY_COOKIE_INJECT',{host:u.hostname,cookies:cookies.length});
+    return {requestHeaders:headers};
+   }).catch(e=>{console.warn('[HIB RC77] KEY_COOKIE_ERROR',String(e));return {};});
+ }catch(e){console.warn('[HIB RC77] KEY_ERROR',String(e));return {};}
+},{urls:['https://*/*']},['blocking','requestHeaders']);
+
+/* RC449: a hotlink-protected file (watchhentai's hstorage.xyz answers 403 without a Referer) requested by the HIB player page itself gets the
+ * site page that the scan verified it on as its Referer. Only requests whose address has a hint, made by the extension's own player page. */
+const hibRefererListener=d=>{
+ try{
+  const initiator=String(d.originUrl||d.documentUrl||'');
+  if(!initiator.startsWith(browser.runtime.getURL('')))return {};
+  let hint=hib101MediaOriginHints.get(d.url);
+  /* RC460: playlist segments / keys / init files are other addresses on the same host: a host that refused the playlist without a Referer refuses them too. */
+  if(!hint||!hint.needsReferer){hint=null;try{const dom=h=>h.split('.').slice(-2).join('.');const host=dom(new URL(d.url).hostname);for(const [k,hh] of hib101MediaOriginHints){if(hh&&hh.needsReferer&&Date.now()<hh.until&&dom(new URL(k).hostname)===host){hint=hh;break;}}   /* RC464: same registrable domain (playlist on one CDN host, segments on a sibling host) */}catch(_){}}
+  if(!hint||Date.now()>hint.until||!hint.needsReferer)return {};
+  const headers=(d.requestHeaders||[]).slice();
+  const h=headers.find(x=>x.name.toLowerCase()==='referer');
+  if(h)h.value=hint.referrer;else headers.push({name:'Referer',value:hint.referrer});
+  return {requestHeaders:headers};
+ }catch(_){return {};}
+};
+/* RC453: registered ONLY while some verified address needs it (a file that answered 401/403 to a Referer-less request) and removed again when
+ * none is left, so ordinary playback never pays for a blocking request hook. hibRefererSync() runs when a hint is flagged and every minute. */
+let hibRefererOn=false;
+/* RC471: identity of a media FILE across fresh signatures: host + the last two path segments (a token or a time stamp earlier in the path changes every time: /<token>/<unix>/videos/70574.mp4) */
+function hibFileKey(u){const x=new URL(u);return x.origin+'|'+x.pathname.split('/').filter(Boolean).slice(-2).join('/');}
+function hibRefererSync(){
+ let need=false;
+ for(const [,hint] of hib101MediaOriginHints)if(hint&&hint.needsReferer&&Date.now()<hint.until){need=true;break;}
+ if(need&&!hibRefererOn){browser.webRequest.onBeforeSendHeaders.addListener(hibRefererListener,{urls:['https://*/*'],types:['media','xmlhttprequest','other']},['blocking','requestHeaders']);hibRefererOn=true;}
+ else if(!need&&hibRefererOn){browser.webRequest.onBeforeSendHeaders.removeListener(hibRefererListener);hibRefererOn=false;}
+}
+setInterval(hibRefererSync,60000);
+
+// RC98: narrow, privacy-safe comparison of AES-128 key requests.
+// Capture only request metadata, never cookies, tokens, or key bodies.
+const hibRc98KeyRequests=[];
+const hibRc98Pending=new Map();
+function hibRc98IsKeyRequest(url){try{return /^https?:$/.test(new URL(url).protocol)&&/\/key\.bin$/i.test(new URL(url).pathname)}catch(_){return false}}
+function hibRc98UrlHost(url){try{return new URL(url).hostname}catch(_){return null}}
+function hibRc98Referrer(headers){const h=(headers||[]).find(x=>x.name?.toLowerCase()==='referer');return h?hibRc98UrlHost(h.value):null}
+browser.webRequest.onBeforeSendHeaders.addListener(d=>{
+ if(!hibRc98IsKeyRequest(d.url))return;
+ const u=new URL(d.url);
+ hibRc98Pending.set(d.requestId,{at:new Date().toISOString(),keyHost:u.hostname,hasQuery:u.search.length>1,queryParameterNames:[...u.searchParams.keys()].slice(0,8),initiatorHost:hibRc98UrlHost(d.originUrl||d.documentUrl||''),refererHost:hibRc98Referrer(d.requestHeaders),tabId:d.tabId,method:d.method});
+}, {urls:['<all_urls>']},['requestHeaders']);
+function hibRc98Finish(d,status){const r=hibRc98Pending.get(d.requestId);if(!r)return;hibRc98Pending.delete(d.requestId);hibRc98KeyRequests.push({...r,status});if(hibRc98KeyRequests.length>35)hibRc98KeyRequests.shift();}
+browser.webRequest.onCompleted.addListener(d=>hibRc98Finish(d,d.statusCode),{urls:['<all_urls>']});
+browser.webRequest.onErrorOccurred.addListener(d=>hibRc98Finish(d,d.error||'network-error'),{urls:['<all_urls>']});
+
+
+/* RC276 / MINIMAL CARD TO ORIGINAL VIDEO RESOLVER ADAPTER.
+   No replacement player, media-source detector or permission state machine. */
+const hibRc276Windows=new Map();
+const hibScanProbes=new Set();
+/* NO DISK CACHE FOR HIB VIDEO. Firefox stores every played video / playlist / segment in its disk cache, which fills the drive. Responses to
+ * media requests made by a scan tab (hibScanProbes) or by a tab that shows the HIB player (hibPlayerTabs) are marked no-store, so only HIB's small
+ * records (episode url, player type) remain: nothing has to be emptied afterwards. */
+const hibPlayerTabs=new Set();
+browser.webRequest.onHeadersReceived.addListener(d=>{
+ if(!(hibScanProbes.has(d.tabId)||hibPlayerTabs.has(d.tabId)))return undefined;
+ const headers=(d.responseHeaders||[]).filter(x=>!/^(?:cache-control|expires|pragma)$/i.test(x.name));
+ headers.push({name:'Cache-Control',value:'no-store, no-cache, must-revalidate'});
+ return {responseHeaders:headers};
+},{urls:['<all_urls>'],types:['media','xmlhttprequest','other']},['blocking','responseHeaders']);
+browser.tabs.onRemoved.addListener(id=>{hibPlayerTabs.delete(id);});
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-player-tab')return undefined;
+ const id=sender?.tab?.id;
+ if(Number.isInteger(id)){if(msg.open)hibPlayerTabs.add(id);else hibPlayerTabs.delete(id);}
+ return Promise.resolve({ok:true});
+});
+browser.runtime.onMessage.addListener(msg=>{
+ if(msg?.type!=='hib-still-log'||typeof msg.text!=='string')return undefined;
+ hibTabLogUntil=Date.now()+20000;
+ console.info(msg.text);
+ hibRc343ScheduleLogWrite();
+ return undefined;
+});
+/* A video playing in the page itself (no card, often a blob: address fed by a streaming library): the tab's own manifest / media
+ * requests are remembered so a right-click on that video can hand the real address to the HIB player. Kept per tab, dropped when the
+ * tab closes or navigates; only the address is stored. */
+const hibTabMedia=new Map();
+browser.webRequest.onBeforeRequest.addListener(d=>{
+ if(d.tabId<0)return;
+ if(d.type==='main_frame'){hibTabMedia.delete(d.tabId);return;}
+ let p;try{p=new URL(d.url).pathname.toLowerCase();}catch(_){return;}
+ const kind=/\.m3u8$/.test(p)?'hls':/\.mpd$/.test(p)?'dash':/\.(?:mp4|m4v|webm|ogv)$/.test(p)?'direct':'';
+ if(!kind)return;
+ const list=hibTabMedia.get(d.tabId)||[];
+ list.push({url:d.url,kind,t:Date.now()});
+ if(list.length>20)list.shift();
+ hibTabMedia.set(d.tabId,list);
+},{urls:['<all_urls>'],types:['xmlhttprequest','media','other']});
+/* RC358: generic response MIME capture for media endpoints without filename extensions.
+ * No website/CDN logic, tokens, headers or cookies persisted. MIME must actually be media. */
+browser.webRequest.onHeadersReceived.addListener(d=>{
+ if(d.tabId<0||!/^https:/i.test(d.url))return;
+ const ct=(d.responseHeaders||[]).find(h=>h.name.toLowerCase()==='content-type')?.value?.split(';')[0]?.trim()?.toLowerCase()||'';
+ const kind=/^(?:application\/(?:vnd\.apple\.mpegurl|x-mpegurl)|audio\/(?:mpegurl|x-mpegurl))$/.test(ct)?'hls':ct==='application/dash+xml'?'dash':/^(?:video\/(?:mp4|x-m4v|webm|ogg|quicktime|x-matroska)|application\/octet-stream)$/.test(ct)&&d.type==='media'?'direct':/^video\/(?:mp4|webm|ogg|quicktime|x-matroska)$/.test(ct)?'direct':'';
+ if(!kind)return;
+ const list=hibTabMedia.get(d.tabId)||[];
+ if(!list.some(x=>x.url===d.url)){list.push({url:d.url,kind,t:Date.now(),mime:ct});if(list.length>30)list.shift();hibTabMedia.set(d.tabId,list);}
+},{urls:['<all_urls>'],types:['media','xmlhttprequest','other']},['responseHeaders']);
+browser.tabs.onRemoved.addListener(id=>hibTabMedia.delete(id));
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-tab-media')return undefined;
+ const list=hibTabMedia.get(sender.tab?.id)||[];
+ // A master manifest beats segments / variants: prefer the earliest manifest, otherwise the newest direct file.
+ const manifest=list.find(x=>x.kind==='hls'||x.kind==='dash');
+ const pick=manifest||[...list].reverse().find(x=>x.kind==='direct')||null;
+ return Promise.resolve(pick?{url:pick.url,format:pick.kind==='direct'?undefined:pick.kind}:null);
+});
+/* RC359: HOSTED PLAYERS is an evidence category in the EXISTING detector.
+ * It is NOT a resolver or a playable URL: never hand encrypted chunks / UMP
+ * directly to the HTML5, DASH, HLS or HEVC decoder.
+ * Keep only bounded sanitized metadata per tab, never URLs, keys, cookies or bodies. */
+const hibHostedCandidates = new Map();
+function hibHostedRecord(d, mime, evidence) {
+ if (!Number.isInteger(d.tabId) || d.tabId < 0) return;
+ const now=Date.now();
+ const list=(hibHostedCandidates.get(d.tabId)||[]).filter(x=>now-x.time<120000);
+ const host=(()=>{try{return new URL(d.url).hostname;}catch(_){return 'unknown';}})();
+ const matching=list.find(x=>x.host===host&&x.mime===mime&&x.evidence===evidence&&x.method===d.method);
+ if(matching){matching.count++;matching.time=now;matching.status=d.statusCode||0;}
+ else list.push({category:'Hosted Players',host,mime,evidence,method:d.method||'',frameId:d.frameId??-1,status:d.statusCode||0,count:1,time:now,playable:false});
+ hibHostedCandidates.set(d.tabId,list.slice(-30));
+}
+browser.webRequest.onHeadersReceived.addListener(d=>{
+ if (!/^https:/i.test(d.url)||!['xmlhttprequest','media','other'].includes(d.type)) return;
+ const mime=((d.responseHeaders||[]).find(h=>h.name.toLowerCase()==='content-type')?.value||'').split(';')[0].trim().toLowerCase();
+ const path=(()=>{try{return new URL(d.url).pathname;}catch(_){return '';}})();
+ // UMP is a framed transport; octet-stream is only a candidate when the
+ // URL ends with a numeric byte interval (generic chunk evidence).
+ const evidence=mime==='application/vnd.yt-ump'?'framed-media-transport':
+   mime==='application/octet-stream' && /\/\d+-\d+\/?$/.test(path)?'binary-byte-chunks':null;
+ if(evidence) hibHostedRecord(d,mime,evidence);
+},{urls:['<all_urls>'],types:['xmlhttprequest','media','other']},['responseHeaders']);
+browser.webRequest.onBeforeRequest.addListener(d=>{if(d.type==='main_frame'&&d.tabId>=0)hibHostedCandidates.delete(d.tabId);},{urls:['<all_urls>'],types:['main_frame']});
+browser.tabs.onRemoved.addListener(id=>hibHostedCandidates.delete(id));
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-hosted-player-candidates') return undefined;
+ const list=(hibHostedCandidates.get(sender.tab?.id)||[]).filter(x=>Date.now()-x.time<120000);
+ return Promise.resolve({category:'Hosted Players',candidates:list.map(x=>({...x})) ,playable:false});
+});
+/* RC108 / RC111 autoplay permission module. Runs ONLY for a site whose audible-autoplay probe was refused (NotAllowedError); a site that
+ * already allows autoplay never reaches it. Firefox does not always show its own autoplay prompt, so the episode tab is opened once with a
+ * tip. While it is open discovery is locked (hibPermTab). Closing it proves nothing: the origin is probed again (Dismiss probes before it
+ * closes the tab), then the original discovery is resumed. A site that stays blocked is not opened again for 10 minutes. */
+let hibPermTab=null,hibPermResult='unknown';
+const hibPermTried=new Map();
+const hibRc108TipCode=`(()=>{
+ const id='hib-rc106-permission-tip';
+ // RC419: make a REAL play() attempt now. Firefox/Floorp only shows its autoplay icon (address bar) for a tab whose page actually tried to play and was
+ // blocked; without this call there was no icon to click and the user could not change the permission.
+ try{const a=document.createElement('audio');a.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';a.style.display='none';(document.body||document.documentElement).appendChild(a);const p=a.play();if(p&&p.catch)p.catch(()=>{});setTimeout(()=>a.remove(),3000);}catch(_){}
+ if(document.getElementById(id))return 'already-shown';
+ const el=document.createElement('div');el.id=id;
+ el.style.cssText='position:fixed!important;top:15px!important;right:15px!important;z-index:2147483647!important;max-width:390px!important;background:#151b2b!important;color:#fff!important;border:2px solid #f6bd53!important;border-radius:10px!important;padding:12px 14px!important;font:13px/1.4 sans-serif!important;box-shadow:0 6px 24px #000a!important;';
+ const h=document.createElement('strong');h.textContent='HIB: Autoplay blocked';
+ const i=document.createElement('div');i.style.marginTop='8px';
+ i.textContent='Floorp is blocking audio and video for this site. Click the blocked-autoplay icon at the left of the address bar and choose Allow Audio and Video, then click Dismiss: this tab closes and HIB verifies.';
+ const c=document.createElement('button');c.textContent='Dismiss';c.style.cssText='display:block;margin-top:10px;padding:5px 12px;cursor:pointer;';
+ c.onclick=()=>{el.remove();browser.runtime.sendMessage({type:'hib-rc109-dismiss-permission'}).catch(()=>{});};
+ el.append(h,i,c);(document.body||document.documentElement).appendChild(el);return 'shown';
+})()`;
+async function hibRc108PermissionFlow({target,priorWindow,priorTab,store,closeScan}){
+ hibPermTried.set(target.origin,Date.now());hibPermResult='unknown';
+ let tab;
+ try{
+  const base={url:target.href,active:true,...(priorWindow!==null?{windowId:priorWindow}:{}),...(Number.isInteger(priorTab)?{openerTabId:priorTab}:{})};
+  try{tab=await browser.tabs.create(store&&store!=='firefox-default'?{...base,cookieStoreId:store}:base);}catch(_){tab=await browser.tabs.create(base);}
+ }catch(e){console.info('[HIB RC108]',{status:'PERMISSION_TAB_FAILED',error:String(e)});return 'tab-error';}
+ hibPermTab={id:tab.id,owner:priorTab};
+ console.info('[HIB RC108]',{status:'PERMISSION_TAB_OPENED',origin:target.origin});
+ await closeScan();
+ for(let w=0;w<12;w++){const t=await browser.tabs.get(tab.id).catch(()=>null);if(!t||t.status==='complete')break;await sleep(250);}
+ await browser.tabs.executeScript(tab.id,{code:hibRc108TipCode}).catch(()=>{});
+ await new Promise(resolve=>{
+  const onRemoved=id=>{if(id!==tab.id)return;browser.tabs.onRemoved.removeListener(onRemoved);resolve();};
+  browser.tabs.onRemoved.addListener(onRemoved);
+  browser.tabs.get(tab.id).then(()=>{},()=>{browser.tabs.onRemoved.removeListener(onRemoved);resolve();});
+ });
+ hibPermTab=null;
+ console.info('[HIB RC108]',{status:'PERMISSION_TAB_CLOSED',verified:hibPermResult});
+ return hibPermResult;
+}
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-rc109-dismiss-permission')return undefined;
+ const id=sender?.tab?.id;
+ if(hibPermTab===null||id!==hibPermTab.id)return Promise.resolve({ok:false});
+ return (async()=>{
+  try{const r=await browser.tabs.executeScript(id,{code:hibRc111PlaybackCode});hibPermResult=r?.[0]?.result??r?.[0]??'unknown';}catch(_){hibPermResult='unknown';}
+  // RC423: tell every tab of this site to forget its apostrophe tags so the cards are scanned again (autoplay may be allowed now).
+  try{const t=await browser.tabs.get(id);const origin=new URL(t.url).origin;
+   for(const tab of await browser.tabs.query({url:origin+'/*'}))if(tab.id!==id)browser.tabs.sendMessage(tab.id,{type:'hib-rc423-clear-autoplay-marks'}).catch(()=>{});
+   hibPermTried.delete(origin);}catch(_){}
+  await browser.tabs.remove(id).catch(()=>{});
+  return {ok:true};
+ })();
+});
+
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-scan-is-probe')return undefined;
+ return Promise.resolve({probe:hibScanProbes.has(sender?.tab?.id)});
+});
+let hibRc108BusySince=0;
+/* RC346 janitor: a discovery window never stays open (20 s after its result) and a stuck discovery lock is released after 75 s */
+setInterval(async()=>{
+ try{
+  for(const [wid,v] of [...hibRc276Windows.entries()]){
+   if(Date.now()-v.resultAt>20000){try{await browser.windows.remove(wid);}catch(_){}hibRc276Windows.delete(wid);}
+  }
+  if(hibRc108Busy&&hibRc108BusySince&&Date.now()-hibRc108BusySince>150000&&!hibRc111Handoff){
+   console.warn('[HIB RC346]',{status:'STALE_DISCOVERY_RELEASED'});
+   for(const [key,pr] of [...hibRc293Owned.entries()]){try{const w=await pr;await browser.windows.remove(w.id);}catch(_){}hibRc293Owned.delete(key);}
+   hibRc108Busy=false;
+  }
+ }catch(_){}
+},5000);
+const hibRc312AutoplayOk=new Map();
+const hibRc329SubCandidates=new Map();
+/* RC346 diagnostic (global): while a scan is running or just ended, log every tab / window that appears or takes focus and what opened it,
+ * so a focus grab can be traced to its cause (page script, ad, permission helper, ...). */
+let hibTabLogUntil=0;
+
+/* RC346 test-build diagnostic: HIB console lines written during a scan (and 20 s after) are also saved to Downloads\HIB_SCANLOG.txt
+ * (overwritten each scan), so a focus problem can be read without opening the console. */
+const hibLogBuf=[];
+(()=>{for(const k of ['info','warn','log','error']){const o=console[k].bind(console);
+ console[k]=(...a)=>{try{if(hibRc108Busy||Date.now()<hibTabLogUntil){const t=a.map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' ');if(/^\[HIB/.test(t)){hibLogBuf.push(new Date().toISOString().slice(11,23)+' '+t.slice(0,/DEBUGSTOP/.test(t)?6000:500));if(hibLogBuf.length>1500)hibLogBuf.shift();}}}catch(_){}o(...a);};}})();
+let hibRc343Timer=null;
+function hibRc343ScheduleLogWrite(){
+ /* RC457: HIB never writes HIB_SCANLOG.txt (or any file) on its own any more. The log lines stay in memory only (trimmed here) and are available through the
+  * popup's diagnostics; the only file HIB writes is the one you ask for with a "Capture report" button. */
+ if(hibRc343Timer)return;
+ hibRc343Timer=setTimeout(()=>{hibRc343Timer=null;if(hibLogBuf.length>4000)hibLogBuf.splice(0,hibLogBuf.length-4000);},22000);
+}
+const hibTabLog=(kind,d)=>{try{if(hibRc108Busy||Date.now()<hibTabLogUntil)console.info('[HIB TABLOG]',kind,d);}catch(_){}};
+browser.tabs.onCreated.addListener(t=>{if(hibRc108Busy)hibTabLogUntil=Date.now()+20000;hibTabLog('TAB_CREATED',{id:t.id,store:t.cookieStoreId,active:t.active,opener:t.openerTabId,window:t.windowId,url:String(t.url||t.pendingUrl||'').slice(0,120)});});
+browser.tabs.onActivated.addListener(a=>{hibTabLog('TAB_ACTIVATED',{tab:a.tabId,previous:a.previousTabId,window:a.windowId});});
+browser.windows.onCreated.addListener(w=>{if(hibRc108Busy)hibTabLogUntil=Date.now()+20000;hibTabLog('WINDOW_CREATED',{id:w.id,type:w.type,focused:w.focused,state:w.state});});
+browser.windows.onFocusChanged.addListener(id=>{hibTabLog('WINDOW_FOCUS',{window:id});});
+browser.tabs.onUpdated.addListener((id,c,t)=>{if(c.url||c.status==='loading')hibTabLog('TAB_UPDATED',{id,window:t.windowId,active:t.active,status:c.status,url:String(c.url||'').slice(0,120)});});
+browser.tabs.onRemoved.addListener((id,i)=>{hibTabLog('TAB_REMOVED',{id,window:i.windowId,windowClosing:i.isWindowClosing});});
+browser.windows.onRemoved.addListener(id=>{hibTabLog('WINDOW_REMOVED',{id});});
+
+function hibRc332Srt2Vtt(t){return 'WEBVTT\n\n'+t.replace(/\r/g,'').replace(/(\d\d:\d\d:\d\d),(\d\d\d)/g,'$1.$2');}
+/* RC441: language of a subtitle candidate: from its ADDRESS (en / eng / english, ar / ara / arabic, ja / jpn / japanese ...) first, otherwise from the SCRIPT of
+ * its text (Arabic, Cyrillic, Hangul, kana, Han, Thai, Hebrew, Greek). Plain Latin text with no language hint returns null (unknown Latin language). */
+function hibRc440Lang(url,text){
+ const names={en:'en',eng:'en',english:'en',ar:'ar',ara:'ar',arabic:'ar',ja:'ja',jp:'ja',jpn:'ja',japanese:'ja',es:'es',spa:'es',spanish:'es',fr:'fr',fra:'fr',fre:'fr',french:'fr',
+  de:'de',deu:'de',ger:'de',german:'de',pt:'pt',por:'pt',portuguese:'pt',it:'it',ita:'it',italian:'it',ru:'ru',rus:'ru',russian:'ru',ko:'ko',kor:'ko',korean:'ko',
+  zh:'zh',zho:'zh',chi:'zh',chinese:'zh',id:'id',ind:'id',indonesian:'id',th:'th',tha:'th',thai:'th',vi:'vi',vie:'vi',vietnamese:'vi',tr:'tr',tur:'tr',turkish:'tr',hi:'hi',hin:'hi',hindi:'hi'};
+ try{
+  const path=decodeURIComponent(new URL(url).pathname).toLowerCase();
+  /* RC472: the FILE NAME is read first, then the folders from the nearest outward: a title word in a folder ('...Honi de Yatte Mitara...' = German 'de') must never outrank the file's own 'eng.ass' */
+  /* RC508: a TITLE word must never be read as a language. 'Honi de Yatte Mitara' (German 'de'), 'ita', 'id', 'hi' ... appear in titles. So:
+   *   file name  - only a code that is a SUFFIX tag: one of the last 3 pieces before the extension, scanned from the END (the tag follows the title), and a 2-letter code
+   *                must be attached with . _ - [ ( , never separated by spaces from the title ('Honi de Yatte' has spaces; 'Title.eng.ass' / 'Title [en].vtt' do not);
+   *   folders    - only a folder that IS the language ('en', 'eng/', 'English', 'subs-en', 'subtitles_german'), never a title folder containing a language word. */
+  const segs=path.split('/').filter(Boolean);
+  const file=(segs.pop()||'').replace(/\.[a-z0-9]{2,4}$/,'');
+  const pieces=[...file.matchAll(/([^a-z]*)([a-z]+)/g)].map(m=>({delim:m[1],tok:m[2]}));
+  for(const pc of pieces.slice(-3).reverse()){
+   if(!names[pc.tok]||pc.tok.length<2)continue;
+   if(pc.tok.length===2&&!/[._\-\[(]$/.test(pc.delim))continue;     // short code glued to the title by spaces only = a title word
+   return names[pc.tok];
+  }
+  for(const seg of segs.reverse()){
+   const m=seg.trim().match(/^(?:(?:subs?|subtitles?|captions?|srt|vtt)[ ._-]*)?([a-z]{2,})$/);
+   if(m&&names[m[1]])return names[m[1]];
+  }
+ }catch(_){}
+ const t=String(text||'').slice(0,20000);
+ const count=re=>(t.match(re)||[]).length;
+ const sets=[['ar',/[\u0600-\u06FF]/g],['ru',/[\u0400-\u04FF]/g],['ko',/[\uAC00-\uD7AF]/g],['ja',/[\u3040-\u30FF]/g],['zh',/[\u4E00-\u9FFF]/g],['th',/[\u0E00-\u0E7F]/g],['he',/[\u0590-\u05FF]/g],['el',/[\u0370-\u03FF]/g]];
+ let best=null,bestN=0;for(const [code,re] of sets){const n=count(re);if(n>bestN){best=code;bestN=n;}}
+ if(bestN>=10)return best;
+ /* RC508: Latin-script text with no language hint in the address: plain English dialogue is recognised by its common words (the player's default is English). */
+ const en=(t.match(/\b(?:the|and|you|that|this|with|have|for|not|are|was|what|just|your|can|but)\b/gi)||[]).length;
+ return en>=12?'en':null;
+}
+/* RC439: share of Latin letters among all letters of the dialogue text of a subtitle file (VTT / SRT / ASS). >= 85 % counts as English-script. */
+function hibRc439LooksLatin(text){
+ try{
+  let body=String(text||'');
+  // ASS: only the dialogue text (last field of "Dialogue:" lines), without {override tags}
+  if(/\[Events\]/i.test(body.slice(0,8000))){body=body.split(/\r?\n/).filter(l=>/^Dialogue:/i.test(l)).map(l=>l.split(',').slice(9).join(',').replace(/\{[^}]*\}/g,' ')).join('\n');}
+  else body=body.replace(/^WEBVTT.*$/m,'').replace(/\d+:\d\d[:.,]\d\d\d?\s*-->\s*\d+:\d\d[:.,]\d\d\d?[^\n]*/g,' ').replace(/<[^>]+>/g,' ');
+  body=body.slice(0,60000);
+  const latin=(body.match(/[A-Za-zÀ-ɏ]/g)||[]).length,letters=(body.match(/\p{L}/gu)||[]).length;
+  return letters<20?true:latin/letters>=0.85;   // a near-empty file cannot be judged
+ }catch(_){return true;}
+}
+async function hibRc332FetchSub(url,page,timeoutMs,anyLang){
+ const c=new AbortController();const tm=setTimeout(()=>c.abort(),timeoutMs);
+ try{
+  const r=await fetch(url,{credentials:'include',referrer:page,cache:'no-store',signal:c.signal});
+  clearTimeout(tm);
+  if(!r.ok)return null;
+  const raw=await r.text();
+  if(raw.length>3000000)return null;
+  const t=raw.replace(/^\uFEFF/,'').trimStart();
+  // RC439: ENGLISH ONLY. A subtitle file whose letters are mostly NOT Latin (Arabic, Cyrillic, Greek, Hebrew, Thai, CJK ...) is rejected, so the
+  // next candidate (the English one) is used. Timestamps, numbers, tags and ASS styling lines carry no language and are ignored.
+  const latinOk=hibRc439LooksLatin(t);
+  if(!latinOk&&!anyLang)return null;   // RC441: the track list (anyLang) keeps every language; the single default still has to be Latin script
+  const lang=hibRc440Lang(url,t);
+  const path=new URL(url).pathname;
+  const label=/(?:^|[\/._-])(?:en|eng|english)(?:[\/._-]|$)/i.test(path)?'English':'Subtitles';
+  if(t.startsWith('WEBVTT'))return {ok:true,text:t,label,kind:'vtt',lang,latinOk,url};
+  if(/^\d+\s*\r?\n\d\d:\d\d:\d\d[,.]\d{3}\s*-->/.test(t))return {ok:true,text:hibRc332Srt2Vtt(t),label,kind:'srt',lang,latinOk,url};
+  if(/^\[Script Info\]/i.test(t)||/\[Events\]/i.test(t.slice(0,6000)))return {ok:true,format:'ass',url,label,kind:'ass',lang,latinOk};
+  return null;
+ }catch(_){clearTimeout(tm);return null;}
+}
+browser.runtime.onMessage.addListener((msg)=>{
+ if(msg?.type!=='hib-rc332-get-subs')return undefined;
+ return (async()=>{
+  const rec=hibRc329SubCandidates.get(msg.url)||{urls:[],page:msg.page||''};
+  const bad=/(?:thumb|sprite|storyboard|preview|seek)/i;
+  const en=u=>/(?:^|[\/._-])(?:en|eng|english)(?:[\/._-]|$)/i.test(u)?1:0;
+  const norm=raw=>{try{const x=new URL(raw,rec.page||msg.url);return x.protocol==='https:'&&!bad.test(x.pathname)?x.href:null;}catch(_){return null;}};
+  const observed=[...new Set(rec.urls.map(norm).filter(Boolean))].sort((a,b)=>en(b)-en(a)).slice(0,10);
+  let found=null,tracks=[];
+  if(observed.length){
+   const res=await Promise.all(observed.map(u=>hibRc332FetchSub(u,rec.page,6000,true)));
+   tracks=res.filter(Boolean);
+   found=tracks.find(x=>x.latinOk)||null;   // the legacy single default: first Latin-script candidate (English-named ones are sorted first)
+  }
+  const pagePromise=(async()=>{if(found)return;
+   /* RC472: the episode PAGE itself often lists its subtitle files (a download / track list) on a host other than the media's, which the guesses below can never reach.
+      Read the page once and take every .ass / .vtt / .srt address in it (English-named first). Generic, no site rules. */
+   try{
+    const pg=rec.page||msg.page||'';
+    if(/^https:/i.test(pg)){
+     const ctl=new AbortController();const tm0=setTimeout(()=>ctl.abort(),6000);
+     const html=await fetch(pg,{credentials:'include',cache:'no-store',signal:ctl.signal}).then(r=>r.ok?r.text():'').catch(()=>'');clearTimeout(tm0);
+     const urls=[...new Set((String(html).split('\/').join('/').match(/https:\/\/[^\s"'<>\)]+?\.(?:ass|vtt|srt)(?:\?[^\s"'<>\)]*)?/gi)||[]).map(norm).filter(Boolean))].sort((x,y)=>en(y)-en(x)).slice(0,8);
+     if(urls.length){
+      const res2=await Promise.all(urls.map(u=>hibRc332FetchSub(u,pg,6000,true)));
+      for(const t of res2.filter(Boolean))if(!tracks.some(x=>x.url===t.url))tracks.push(t);
+      found=tracks.find(x=>x.latinOk)||null;
+      console.info('[HIB RC346]',{status:'SUBTITLES_FROM_PAGE',listed:urls.length,usable:tracks.length,found:!!found});
+     }
+    }
+   }catch(_){}
+  })();   // RC481: runs alongside the guesses below; whichever finds a track first ends the other
+  if(!found){
+   // nothing observed (or nothing usable): look next to the media file for the usual subtitle names
+   let guesses=[];
+   try{
+    const m=new URL(msg.url);
+    const dir=m.origin+m.pathname.replace(/[^\/]*$/,'');
+    const base=m.origin+m.pathname.replace(/\.[a-z0-9]{2,5}$/i,'');
+    guesses=[dir+'subs/en.vtt',dir+'subs/eng.vtt',dir+'subs/english.vtt',dir+'subtitles/en.vtt',dir+'subtitles/eng.vtt',dir+'en.vtt',dir+'eng.vtt',base+'.vtt',base+'.en.vtt',base+'.eng.vtt',base+'.srt',base+'.ass'];
+    // RC429: the subtitle file often sits one folder ABOVE the media (hstream: .../E02/720/manifest.mpd with .../E02/eng.ass). Try the parent
+    // folder too, and the usual ASS names (the player renders ASS with libass). Generic names only, no site rules.
+    const up=dir.replace(/[^\/]+\/$/,'');
+    for(const d of (up.length>m.origin.length+1&&up!==dir?[dir,up]:[dir])){
+     // RC438: ENGLISH-named files only. Generic names (sub, subs, subtitles) were removed: they can be ANY language and picked foreign subtitles.
+     for(const n of ['eng.ass','en.ass','english.ass','sub_en.ass','sub_eng.ass','sub_english.ass'])guesses.push(d+n);
+     // RC431: also the "sub_en.vtt" family (oppai.stream keeps .../<video>/sub_en.vtt next to the dash/ folder)
+     for(const n of ['sub_en.vtt','sub_eng.vtt','sub_english.vtt','sub_en.srt'])guesses.push(d+n);
+     if(d===up)for(const n of ['eng.vtt','en.vtt','english.vtt','eng.srt','en.srt'])guesses.push(d+n);
+    }
+   }catch(_){}
+   // RC431: the most common names first (parent folder, then the media folder) so the usual case is found in the first batch.
+   try{const m2=new URL(msg.url),dir2=m2.origin+m2.pathname.replace(/[^\/]*$/,''),up2=dir2.replace(/[^\/]+\/$/,'');
+    const first=[];for(const d of (up2.length>m2.origin.length+1&&up2!==dir2?[up2,dir2]:[dir2]))for(const n of ['sub_en.vtt','eng.ass','en.vtt','eng.vtt','sub_en.ass','en.ass'])first.push(d+n);
+    guesses=first.concat(guesses);}catch(_){}
+   const uniq=[...new Set(guesses)].slice(0,48);
+   // RC431: batches of 6 (the browser allows ~6 parallel requests per host; 48 at once made the later guesses time out in the queue).
+   for(let i=0;i<uniq.length&&!found;i+=6){
+    const res=await Promise.all(uniq.slice(i,i+6).map(u=>hibRc332FetchSub(u,rec.page||msg.page||'',3500)));
+    found=found||res.find(Boolean)||null;
+   }
+   if(found)console.info('[HIB RC346]',{status:'SUBTITLES_FOUND_BY_LOOKUP',kind:found.kind});
+  }
+  await pagePromise;
+  if(found)console.info('[HIB RC346]',{status:'SUBTITLES_READY',kind:found.kind});
+  // RC441: every candidate found goes to the player as a TRACK LIST (language detected) so the user can pick; a guessed file is a one-item list.
+  if(found&&!tracks.some(x=>x.url===found.url))tracks.push(found);
+  const list=tracks.map(x=>({kind:x.kind,format:x.format,url:x.url,text:x.text,label:x.label,lang:x.lang||null,latin:x.latinOk!==false}));
+  const fonts=Array.isArray(rec.fonts)?rec.fonts.slice(0,8):[];   // page fonts for ASS playback
+  if(found)return {...found,tracks:list,fonts};
+  return list.length?{ok:true,tracks:list,fonts}:{ok:false};
+ })();
+});
+
+/* RC460: a stream's playlist can load without a Referer while its media files refuse that (hotlink protection answers 401/403/404/410 to the segments only).
+ * Look at the first media file the playlist names (following one master -> variant step); if it is refused, the address is flagged so the Referer hook
+ * (same-host rule) supplies the page that verified it for the whole stream. */
+/* RC495: is a stream manifest (DASH .mpd / HLS .m3u8) really usable? The manifest must load and look like one, and its first media piece (the init segment of a DASH
+ * template, or the first segment of an HLS playlist) must answer. Used by the scan to accept a manifest that is verified as reachable, without waiting for the
+ * page's own player to get going (some players need 10-40 s of ads / clicks / slow starts before they move). Generic; any failure simply means 'not accepted early'. */
+async function hibManifestAlive(u){
+ try{
+  const href=new URL(u).href;
+  const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),6000);
+  const r=await fetch(href,{cache:'no-store',signal:ctl.signal});clearTimeout(tm);
+  if(!r.ok)return false;
+  const text=(await r.text()).slice(0,400000);
+  // one ranged request for the first media piece: 200 or 206 = it is there
+  const probe=async(piece)=>{const c2=new AbortController();const t2=setTimeout(()=>c2.abort(),6000);try{const r2=await fetch(piece,{headers:{Range:'bytes=0-0'},cache:'no-store',signal:c2.signal});return r2.status===200||r2.status===206;}finally{clearTimeout(t2);}};
+  const firstLine=(t)=>t.split(/\r?\n/).map(x=>x.trim()).find(x=>x&&x[0]!=='#');
+  if(/<MPD[\s>]/i.test(text)){
+   const init=/initialization="([^"]+)"/.exec(text),rep=/<Representation[^>]*\sid="([^"]+)"/.exec(text);
+   if(!init)return true;                                                     // single-file / base-URL layouts: the manifest itself is the proof
+   return await probe(new URL(init[1].replace(/\$RepresentationID\$/g,rep?rep[1]:'0').replace(/\$Bandwidth\$/g,'0'),href).href);
+  }
+  if(/^\s*#EXTM3U/.test(text)){
+   const first=firstLine(text);
+   if(!first)return false;
+   const abs=new URL(first,href).href;
+   if(/\.m3u8(?:[?#]|$)/i.test(new URL(abs).pathname)){                       // master playlist: look at its first variant's first piece
+    const r3=await fetch(abs,{cache:'no-store'});if(!r3.ok)return false;
+    const f3=firstLine(await r3.text());
+    return f3?await probe(new URL(f3,abs).href):false;
+   }
+   return await probe(abs);
+  }
+  return false;
+ }catch(_){return false;}
+}
+async function hibRefererNeedProbe(u,text,depth){
+ const first=String(text).split(/\r?\n/).map(s=>s.trim()).find(s=>s&&s[0]!=='#');
+ if(!first)return;
+ const abs=new URL(first,u.href);
+ if(abs.protocol!=='https:')return;
+ if(/\.m3u8(?:[?#]|$)/i.test(abs.pathname)){
+  if(depth>0)return;
+  const pr=await fetch(abs.href,{cache:'no-store'});
+  if(pr.status!==200)return;
+  return hibRefererNeedProbe(abs,await pr.text(),depth+1);
+ }
+ const sr=await fetch(abs.href,{headers:{Range:'bytes=0-1'},cache:'no-store'});
+ try{if(sr.body)sr.body.cancel();}catch(_){}
+ if([401,403,404,410,412].includes(sr.status)){const hh=hib101MediaOriginHints.get(u.href)||hib101MediaOriginHints.get(abs.href);if(hh){hh.needsReferer=true;hibRefererSync();console.info('[HIB RC346]',{status:'MEDIA_FILES_NEED_REFERER',host:abs.hostname,http:sr.status});}}
+}
+browser.runtime.onMessage.addListener((msg)=>{
+ if(msg?.type!=='hib-rc326-verify-url')return undefined;
+ return (async()=>{
+  let u;try{u=new URL(msg.url);}catch(_){return {alive:false};}
+  if(u.protocol!=='https:')return {alive:true};
+  try{const ref=new URL(msg.referrer);const had=hib101MediaOriginHints.get(u.href);if(ref.protocol==='https:'&&!(had&&Date.now()<had.until))hib101MediaOriginHints.set(u.href,{referrer:ref.href,until:Date.now()+30*60*1000,source:'verified-popup'});}catch(_){}   // RC459: never replace the embed's own address (set when the scan played it) with the page address
+  const c=new AbortController();const t=setTimeout(()=>c.abort(),2500);   // RC496: a slow answer is treated as 'alive' below; waiting 5 s here delayed every first open of a freshly found video
+  try{
+   const isHls=/\.m3u8(?:[?#]|$)/i.test(u.pathname);
+   const probe=()=>fetch(u.href,{headers:isHls?{}:{Range:'bytes=0-1'},cache:'no-store',signal:c.signal,redirect:'follow'});
+   let r=await probe();
+   /* RC459: a refusal may only mean "no Referer" (hotlink protection): flag the address, let the Referer hook add the page that verified it, and ask once more. A second refusal = the file is gone / its signature ran out. */
+   if([401,403,410,412].includes(r.status)){try{if(r.body)r.body.cancel();}catch(_){}const hh=hib101MediaOriginHints.get(u.href);if(hh&&!hh.needsReferer){hh.needsReferer=true;hibRefererSync();r=await probe();}}
+   clearTimeout(t);
+   let ok=!(r.status===404||r.status===410||r.status===412);
+   if(r.status===200&&isHls){const full=await r.text();ok=full.slice(0,64).trimStart().startsWith('#EXTM3U');if(ok)await hibRefererNeedProbe(u,full,0).catch(()=>{});}
+   else{try{if(r.body)r.body.cancel();}catch(_){}}
+   /* RC465: 401/403 after the Referer retry is NOT 'dead': hosts behind a DDoS guard / session cookie refuse a request made outside the page and still serve the player's own (saved cards were dropped and re-scanned in a loop). Expired signatures are caught by hibUrlExpired (stale) instead. */
+   console.info('[HIB RC346]',{status:'CACHED_URL_CHECK',alive:ok,http:r.status,host:u.hostname});
+   return {alive:ok,status:r.status};
+  }catch(e){clearTimeout(t);console.info('[HIB RC346]',{status:'CACHED_URL_CHECK',alive:true,error:String(e)});return {alive:true,error:String(e)};/* RC450: a failed check never discards a saved card */}
+ })();
+});
+
+async function hibRc321EnsureNoScanWindows(){
+ const ids=new Set();
+ for(const [wid,v] of [...hibRc276Windows.entries()]){ids.add(wid);hibRc276Windows.delete(wid);}
+ for(const [key,pr] of [...hibRc293Owned.entries()]){try{const w=await pr;if(w?.id!==undefined)ids.add(w.id);}catch(_){}hibRc293Owned.delete(key);}
+ let closed=0;
+ for(const id of ids){
+  for(let attempt=0;attempt<3;attempt++){
+   try{await browser.windows.remove(id);}catch(_){}
+   const still=await browser.windows.get(id).then(()=>true,()=>false);
+   if(!still){closed++;break;}
+   await new Promise(r=>setTimeout(r,150));
+  }
+ }
+ if(ids.size)console.info('[HIB RC346]',{status:'LEFTOVER_SCAN_WINDOWS_CLOSED_BEFORE_NEW_SCAN',found:ids.size,closed});
+}
+const hibRc276AckPending=new Map();
+let hibRc276Active=null;
+// RC279: single-flight by originating tab + exact media destination.
+// Never start a second discovery for an already-running matching request.
+let hibRc279ActiveKey=null;
+let hibRc279ActivePromise=null;
+const hibRc279Acked=new Map();
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type==='hib-rc268-source-received'){
+  const item=hibRc276AckPending.get(msg.token);
+  if(!item || item.owner!==sender?.tab?.id || item.url!==msg.url)return Promise.resolve({ok:false,error:'unmatched verified source acknowledgment'});
+  // Do not consume the token until the owned resolver actually closes.
+  return (async()=>{
+   const matching=[...hibRc276Windows.entries()].filter(([id,v])=>v.owner===item.owner&&v.pageUrl===item.pageUrl).map(([id])=>id);
+   if(!matching.includes(item.windowId))matching.push(item.windowId);
+   let closed=0,errors=[];
+   for(const id of matching){
+    try{await browser.windows.remove(id);closed++;hibRc276Windows.delete(id);}
+    catch(e){
+     const missing=await browser.windows.get(id).then(()=>false,()=>true);
+     if(missing){hibRc276Windows.delete(id);closed++;}else errors.push(String(e));
+    }
+   }
+   if(errors.length){console.warn('[HIB RC279]',{status:'ACK_CLEANUP_FAILED',errors});return {ok:false,error:errors.join('; '),closed};}
+   hibRc276AckPending.delete(msg.token);
+   hibRc279Acked.set(item.owner+'|'+item.pageUrl,{url:item.url,at:Date.now()});
+   console.info('[HIB RC279]',{status:'VERIFIED_RESOLVER_CLOSED',owner:item.owner,page:item.pageUrl,closed});
+   return {ok:true,closed};
+  })();
+ }
+ if(msg?.type!=='hib-rc259-probe-video')return undefined;
+ if(!sender?.tab?.id)return Promise.resolve({error:'Card tab required',sources:[]});
+ const owner=sender.tab.id;
+ let requestUrl;
+ try{requestUrl=new URL(msg.pageUrl).href;}catch{return Promise.resolve({error:'Invalid media page URL',sources:[]});}
+ const requestKey=owner+'|'+requestUrl;
+ if(hibPermTab!==null)return Promise.resolve({error:'Video probe busy (permission tab open)',busy:true,sources:[]});
+ if(hibRc279ActivePromise){
+  if(hibRc279ActiveKey===requestKey){
+   console.info('[HIB RC279]',{status:'JOIN_EXISTING_PROBE',page:requestUrl});
+   return hibRc279ActivePromise;
+  }
+  return Promise.resolve({error:'Video probe busy (different card currently scanning)',busy:true,sources:[]});
+ }
+ const task=(async()=>{
+  let target;
+  try{target=new URL(msg.pageUrl);if(!/^https?:$/.test(target.protocol))throw Error('Invalid URL');}
+  catch(e){return {error:String(e),sources:[]};}
+  await hibRc321EnsureNoScanWindows();
+  console.info('[HIB RC276]',{status:'LEGACY_CORE_ENTERED',page:target.href});
+  let original=await hibRc133ResolveMedia({type:'hib-test-global-rendered-media',pageUrl:target.href,rc276Bridge:true,knownSource:msg.knownSource},sender);
+  if(original?.autoplayPermission&&['allowed-after-close','recheck-after-close'].includes(original.autoplayPermission.status)){
+   console.info('[HIB RC108]',{status:'RESUME_DISCOVERY_AFTER_PERMISSION',after:original.autoplayPermission.status});
+   original=await hibRc133ResolveMedia({type:'hib-test-global-rendered-media',pageUrl:target.href,rc276Bridge:true,permissionRetry:true},sender);
+  }
+  if(original?.busy)return {busy:true,error:original.error||'busy',sources:[]};
+  if(original?.autoplayPermission?.status==='site-allow-required'&&!original.ok){console.info('[HIB RC346]',{status:'AUTOPLAY_NOT_ALLOWED_APOSTROPHE'});original={...original,landing:true,reason:'autoplay-blocked'};}
+  const retained=[...hibRc276Windows.entries()].filter(([,v])=>v.owner===owner&&v.pageUrl===target.href).sort((x,y)=>y[1].resultAt-x[1].resultAt)[0];
+  // RC297: the resolver window has done its job the moment the resolver returns (verified, landing page or failure):
+  // close it now instead of keeping it open and playing in the background.
+  for(const [wid,v] of [...hibRc276Windows.entries()]){
+   if(v.owner===owner&&v.pageUrl===target.href){try{await browser.windows.remove(wid);}catch(_){}hibRc276Windows.delete(wid);}
+  }
+  if(original?.landing){console.info('[HIB RC297]',{status:'LANDING_REPORTED_POPUP_CLOSED',reason:original.reason||'landing',page:target.href});return {landing:true,reason:original.reason||'landing',sources:[],error:null};}
+  console.info('[HIB RC276]',{status:'LEGACY_CORE_RETURNED',ok:!!original?.ok,verified:!!original?.verified,url:original?.url||null,error:original?.error||null,retainedWindow:retained?.[0]??null});
+  if(!(original?.ok&&original?.verified&&/^https?:\/\//.test(original.url||''))){
+   return {error:original?.error||'Legacy resolver did not verify a source',sources:[],frames:original?.framesExamined||0,observations:original?.diagnosticSnapshots||[],autoplayPermission:original?.autoplayPermission||null};
+  }
+  const token='hib276-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
+  if(retained)hibRc276AckPending.set(token,{owner,url:original.url,windowId:retained[0],pageUrl:target.href});
+  return {sources:[{url:original.url,kind:'verified-media',format:original.mediaFormat||'legacy',frame:String(original.candidates?.[0]?.frame||'')}],playbackVerified:!!retained,resultToken:retained?token:null,detectedEngine:original.rc150DetectedEngine||original.engine||null,frames:original.framesExamined||0,observations:original.diagnosticSnapshots||[],subtitles:original.subtitles||null};
+ })().catch(e=>{console.error('[HIB RC276] LEGACY_CORE_FAILED',String(e));return {error:String(e),sources:[]};});
+ hibRc276Active=task;
+ hibRc279ActiveKey=requestKey;
+ const delivered=task.finally(()=>{
+  if(hibRc276Active===task)hibRc276Active=null;
+  if(hibRc279ActivePromise===delivered){hibRc279ActivePromise=null;hibRc279ActiveKey=null;}
+ });
+ hibRc279ActivePromise=delivered;
+ return delivered;
+});
+
+/* RC284: site engine hint stored independently from expiring episode URLs. */
+browser.runtime.onMessage.addListener((message,sender)=>{
+ if(message?.type!=='hib-rc284-record-known-engine')return undefined;
+ try{
+  const site=new URL(message.siteUrl);
+  if(!/^https?:$/.test(site.protocol)||!sender?.tab?.url||new URL(sender.tab.url).hostname!==site.hostname)
+   return Promise.resolve({ok:false,error:'site origin mismatch'});
+  return HIBRC150.recordKnownEngine(site.hostname,message.engine)
+   .then(ok=>({ok}),error=>({ok:false,error:String(error)}));
+ }catch(error){return Promise.resolve({ok:false,error:String(error)});}
+});
+
+
+/* RC346: toolbar "Clear HIB video cache" + a clean video cache on every load of the add-on */
+browser.runtime.onMessage.addListener((msg)=>{
+ if(msg?.type!=='hib-rc346-clear-cache')return undefined;
+ return (async()=>{
+  try{await browser.storage.local.remove(['hibRc291VerifiedEpisodeMedia']);}catch(_){}
+  try{hibRc329SubCandidates.clear();hibRc312AutoplayOk.clear();}catch(_){}
+  let n=0;
+  try{for(const t of await browser.tabs.query({})){try{await browser.tabs.sendMessage(t.id,{type:'hib-rc346-clear-cache-page'});n++;}catch(_){}}}catch(_){}
+  console.info('[HIB RC346]',{status:'VIDEO_CACHE_CLEARED',tabs:n});
+  return {ok:true,tabs:n};
+ })();
+});
+/* RC449: the verified-video cache is kept across browser restarts (entries expire by age / address expiry); only the toolbar button clears it. */
+/* ===== END VIDEO SECTION - BACKGROUND (video parts of background.js) - VIDEO FINAL (RC507) ===== */

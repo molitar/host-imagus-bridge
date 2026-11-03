@@ -95,6 +95,115 @@
     return text;
   }
 
+  /* RC136 / TEST SITE STATUS RESET
+   * Remove only per-destination landing records and verified card/player hints
+   * for the active host. Preserve permissions, registrations, media mode,
+   * playback preferences and every other site's learned results.
+   * A tab reload discards session-local hover results and visible badges.
+   * This UI is intentionally temporary until the toolbar redesign.
+   */
+  const rc136Reset = document.getElementById("hibRc136ResetSite");
+  rc136Reset.addEventListener("click", async () => {
+    const site = currentSite;
+    if (!site || !/^https?:/i.test(activeTab?.url || "")) return;
+    const group = site.replace(/^www\./, "");
+    const matchesHost = (value) => {
+      try { return new URL(value).hostname.replace(/^www\./, "") === group; }
+      catch (_) { return false; }
+    };
+    if (!confirm(`Reset all TEST detection results for ${site}?\n\nThis clears landing/video status and learned player/card rules for this site. It keeps site registration, permissions, and settings. Matching tabs will reload.`)) return;
+    rc136Reset.disabled = true;
+    try {
+      const keys = ["hibRc122LandingPages", "hibRc133VerifiedSiteRules", "hibRc78VideoProfiles"];
+      const old = await browser.storage.local.get(keys);
+      // LANDING CLASSIFICATIONS: stored by complete destination URL.
+      const landing = { ...(old.hibRc122LandingPages || {}) };
+      for (const url of Object.keys(landing)) if (matchesHost(url) || String(landing[url]?.host || "").replace(/^www\./, "") === group) delete landing[url];
+      // VERIFIED RULES & LEGACY PLAYER PROFILES: stored by site hostname.
+      const rules = { ...(old.hibRc133VerifiedSiteRules || {}) };
+      const profiles = { ...(old.hibRc78VideoProfiles || {}) };
+      for (const db of [rules, profiles]) for (const hostname of Object.keys(db)) {
+        if (hostname.replace(/^www\./, "") === group) delete db[hostname];
+      }
+      await browser.storage.local.set({
+        hibRc122LandingPages: landing,
+        hibRc133VerifiedSiteRules: rules,
+        hibRc78VideoProfiles: profiles
+      });
+      // Session-only video/failed/unsupported/section-hint results are reset
+      // by reloading matching website tabs. Do not reload other sites.
+      const tabs = await browser.tabs.query({});
+      const matching = tabs.filter(t => t.id != null && matchesHost(t.url || ""));
+      await Promise.all(matching.map(t => browser.tabs.reload(t.id).catch(() => {})));
+      stateNode.textContent = `TEST detection results reset for ${site}; ${matching.length} matching tab(s) reloaded.`;
+    } catch (error) {
+      stateNode.textContent = `Reset failed: ${String(error)}`;
+    } finally {
+      rc136Reset.disabled = false;
+    await rc139LoadControls();
+    }
+  });
+
+  /* RC139 / TEMPORARY TOOLBAR TEST CONTROLS
+   * Hover delay is global for generic video discovery (1-10 seconds).
+   * Scan-for-video is a per-host TEST override, not permanent site registration.
+   * Neither control changes production settings or removes user permissions.
+   */
+  const rc139Delay = document.getElementById('hibRc139HoverDelay');
+  const rc139Label = document.getElementById('hibRc139HoverLabel');
+  const rc139Scan = document.getElementById('hibRc139ScanVideo');
+  let rc139Host = '';
+  let rc139Hydrating = false;
+  // RC148 TEST SITE STATUS: use one canonical host key for checkbox and
+  // displayed state. This changes only TEST UI, never registers the site.
+  function rc148RefreshTestStatus(testEnabled) {
+    if (!currentSite) return;
+    if (currentEnabled) {
+      stateNode.textContent = 'HIB is enabled on this site.';
+    } else {
+      stateNode.textContent = testEnabled
+        ? 'Video scanning enabled (TEST) — site not registered.'
+        : 'HIB is disabled on this site.';
+    }
+  }
+  async function rc139LoadControls() {
+    rc139Hydrating = true;
+    try {
+      rc139Host = currentSite ? currentSite.replace(/^www\./, '').toLowerCase() : '';
+      const data = await browser.storage.local.get(['hibRc139HoverDelaySeconds','hibRc139ScanVideoHosts']);
+      const seconds = Math.max(1, Math.min(10, Number(data.hibRc139HoverDelaySeconds) || 2));
+      rc139Delay.value = String(seconds);
+      rc139Label.textContent = String(seconds);
+      rc139Scan.disabled = !rc139Host || !/^https?:/i.test(activeTab?.url || '');
+      rc139Scan.checked = !!(data.hibRc139ScanVideoHosts || {})[rc139Host];
+      rc148RefreshTestStatus(rc139Scan.checked);
+    } finally { rc139Hydrating = false; }
+  }
+  // RC140 / PERSISTENT HOVER CONTROL: save each slider movement while popup is open.
+  // Do not wait for `change`: Firefox closes toolbar popups on focus changes.
+  let rc140SliderWrite = Promise.resolve();
+  rc139Delay.addEventListener('input', () => {
+    rc139Label.textContent = rc139Delay.value;
+    const seconds = Number(rc139Delay.value);
+    rc140SliderWrite = rc140SliderWrite.catch(() => {}).then(() =>
+      browser.storage.local.set({hibRc139HoverDelaySeconds: seconds})
+    );
+  });
+  rc139Scan.addEventListener('change', async () => {
+    if (rc139Hydrating || !rc139Host) return;
+    const stored = await browser.storage.local.get('hibRc139ScanVideoHosts');
+    const hosts = {...(stored.hibRc139ScanVideoHosts || {})};
+    if (rc139Scan.checked) hosts[rc139Host] = true; else delete hosts[rc139Host];
+    await browser.storage.local.set({hibRc139ScanVideoHosts:hosts});
+    // RC140 / SCANNER OVERRIDE: refresh active content script immediately.
+    // The scanner also observes storage.onChanged for other tabs.
+    if (activeTab?.id != null) {
+      await browser.tabs.sendMessage(activeTab.id, {type:'hib-rc140-refresh-test-scanner'}).catch(() => {});
+    }
+    // Existing content scripts receive the storage change without reloading.
+    rc148RefreshTestStatus(rc139Scan.checked);
+  });
+
   async function getStatus(site) {
     return browser.runtime.sendMessage({
       type:
@@ -180,6 +289,7 @@
     currentSite =
       parsed.hostname
         .toLowerCase();
+    rc136Reset.disabled = false;
 
     siteNode.textContent =
       currentSite;
@@ -205,9 +315,15 @@
     currentEnabled =
       !!result.enabled;
 
-    stateNode.textContent =
-      currentEnabled
-        ? "HIB is enabled on this site."
+    // RC147 / TEST OVERRIDE STATUS: temporary video_scan counts as enabled
+    // for scanner UX, but never enrolls the hostname in enabledSites.
+    const testSaved = await browser.storage.local.get('hibRc139ScanVideoHosts');
+    const testHost = currentSite.replace(/^www\./, '').toLowerCase();
+    const testEnabled = testSaved.hibRc139ScanVideoHosts?.[testHost] === true;
+    stateNode.textContent = currentEnabled
+      ? "HIB is enabled on this site."
+      : testEnabled
+        ? "Video scanning enabled (TEST) — site not registered."
         : "HIB is disabled on this site.";
 
     toggle.textContent =
@@ -266,6 +382,8 @@
       return;
     }
 
+    const profileReply=await browser.runtime.sendMessage({type:'hib-rc78-profiles-get'}).catch(()=>null);
+    const discovered=profileReply?.profiles||{};
     for (const site of sites) {
       const row =
         document.createElement(
@@ -417,6 +535,13 @@
         }
       );
 
+      if(discovered[site]){
+        const format=document.createElement('span');
+        format.className='hibRc78Format';
+        format.textContent='Video · '+discovered[site].type;
+        format.title='Discovered via '+discovered[site].method+' on '+discovered[site].verifiedAt;
+        row.appendChild(format);
+      }
       row.appendChild(name);
       row.appendChild(modeSelect);
       row.appendChild(remove);
@@ -496,7 +621,20 @@
       mainView.style.display =
         "block";
 
-      await loadMain();
+      document.getElementById("hibTestScanner").addEventListener("click", async () => {
+    const [source] = await browser.tabs.query({active:true,currentWindow:true});
+    if (!source || !/^https?:\/\//i.test(source.url || "")) {
+      alert("Open the video page in a regular browser tab and try again.");
+      return;
+    }
+    const target = new URL(browser.runtime.getURL("scanner.html"));
+    target.searchParams.set("tabId", String(source.id));
+    target.searchParams.set("url", source.url);
+    await browser.tabs.create({url:target.href});
+  });
+  document.getElementById("hibTestBackups").addEventListener("click", () => browser.tabs.create({url:browser.runtime.getURL("backup.html")}));
+  await loadMain();
+  await rc139LoadControls();
     }
   );
 
@@ -508,7 +646,7 @@
 
     if (!site) {
       sitesMessage.textContent =
-        "Enter a valid hostname, for example: sukebei.nyaa.si";
+        "Enter a valid hostname, for example: example.com";
 
       return;
     }
@@ -651,6 +789,50 @@
     height.addEventListener("change", save);
   }
   hibV210Status.textContent = "Preferences are saved locally.";
+  // Unified playback defaults, shared by direct and HLS player instances.
+  const audioKey='hibTestVideoPlaybackDefaults', qualityKey='hibTestVideoQualityPreference';
+  const audioSlider=document.getElementById('hibTestAudioVolume');
+  const audioLevel=document.getElementById('hibTestAudioLevel');
+  const audioMuted=document.getElementById('hibTestAudioMuted');
+  const quality=document.getElementById('hibTestQualityDefault');
+  try {
+    const saved=await browser.storage.local.get([audioKey,qualityKey]);
+    const a=saved[audioKey]||{};
+    audioSlider.value=String(Math.round(100*(Number.isFinite(a.volume)?Math.min(1,Math.max(0,a.volume)):1)));
+    audioMuted.checked=typeof a.muted==='boolean'?a.muted:false;
+    quality.value=saved[qualityKey]==='auto'?'auto':'highest';
+  }catch(_){}
+  const saveAudio=()=>{audioLevel.textContent=audioSlider.value+'%';
+    browser.storage.local.set({[audioKey]:{volume:Number(audioSlider.value)/100,muted:audioMuted.checked}}).catch(()=>{
+      hibV210Status.textContent='Audio preference could not be saved.';
+    });};
+  audioLevel.textContent=audioSlider.value+'%';
+  audioSlider.addEventListener('input',()=>{audioLevel.textContent=audioSlider.value+'%';});
+  audioSlider.addEventListener('change',saveAudio);
+  audioMuted.addEventListener('change',saveAudio);
+  quality.addEventListener('change',()=>browser.storage.local.set({[qualityKey]:quality.value}).catch(()=>{}));
 
+
+  document.getElementById("hibTestScanner").addEventListener("click", async () => {
+    const [source] = await browser.tabs.query({active:true,currentWindow:true});
+    if (!source || !/^https?:\/\//i.test(source.url || "")) {
+      alert("Open the video page in a regular browser tab and try again.");
+      return;
+    }
+    const target = new URL(browser.runtime.getURL("scanner.html"));
+    target.searchParams.set("tabId", String(source.id));
+    target.searchParams.set("url", source.url);
+    await browser.tabs.create({url:target.href});
+  });
+  document.getElementById("hibTestBackups").addEventListener("click", () => browser.tabs.create({url:browser.runtime.getURL("backup.html")}));
   await loadMain();
+  await rc139LoadControls();
 })();
+
+/* RC346: clear the HIB video cache */
+document.getElementById('hibTestClearCache')?.addEventListener('click',async e=>{
+ const b=e.currentTarget;
+ try{const r=await browser.runtime.sendMessage({type:'hib-rc346-clear-cache'});b.textContent='Video cache cleared ('+((r&&r.tabs)||0)+' tabs)';}
+ catch(_){b.textContent='Clear failed';}
+ setTimeout(()=>{b.textContent='Clear HIB video cache';},2500);
+});

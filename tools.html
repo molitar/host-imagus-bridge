@@ -1,0 +1,86 @@
+<!doctype html><html><head><meta charset="utf-8"><title>HIB Tools</title><style>
+*{box-sizing:border-box}
+html,body{overflow-x:hidden;overflow-y:auto}
+body{margin:0;width:390px;padding:8px 10px;font:12.5px system-ui,-apple-system,'Segoe UI',sans-serif;background:#f1f3f6;color:#18202e}
+button,input{font:inherit}
+.card{background:#fff;border:1px solid #d9dde4;border-radius:9px;padding:8px 10px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.top h1{font-size:16px;margin:0;font-weight:740;flex:1}
+.iconBtn{width:28px;height:28px;padding:0;border:0;border-radius:50%;background:transparent;color:#2a3446;display:grid;place-items:center;cursor:pointer}
+.iconBtn:hover{background:#e3e8f0}
+.iconBtn svg{width:18px;height:18px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.btn{white-space:nowrap;border:1px solid #b9c2d0;background:#f6f7f9;border-radius:7px;padding:8px 8px;color:#18202e;cursor:pointer;min-height:36px;display:flex;align-items:center;justify-content:flex-start;gap:8px}
+.btn:hover{background:#e6eefb}
+.btn svg{width:16px;height:16px;flex:0 0 auto;color:#2a3446}
+.hideme{display:none}
+[hidden]{display:none!important}
+.sectionHead{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.sectionHead h2{font-size:13.5px;margin:0;font-weight:720;flex:1}
+.row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.row>label{flex:0 0 100px}
+select{width:100%;min-width:0;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;color:#192234;padding:4px 6px}
+.dims{display:flex;align-items:center;gap:6px;flex:1}.dims input{width:78px;border:1px solid #b8c2d0;border-radius:6px;background:#fafcff;padding:4px 6px}.px{color:#566275}.pctText{min-width:38px;text-align:right;color:#304058}
+.card+.card{margin-top:6px}
+#status{color:#155aa1;font-size:11px;white-space:pre-wrap;padding:6px 3px 0;min-height:0}
+</style></head><body>
+<section class="card">
+ <div class="top">
+  <button class="iconBtn" id="back" title="Back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+  <h1>Tools</h1>
+ </div>
+ <div class="grid">
+  <button class="btn" id="manage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Manage Sites</button>
+  <button class="btn" id="save"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>Save Settings</button>
+  <button class="btn" id="restoreButton"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20V9M7 13l5-5 5 5M5 4h14"/></svg>Restore Settings</button>
+   <!-- Submit Request: opens the choice below (Request a Site / Request a Feature). -->
+   <button class="btn" id="requestBtn" title="Ask for a new site to be supported, or suggest a new feature."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>Submit Request</button>
+   <!-- Report Issue: captures the diagnostic report of the page you are on, copies it, and opens a pre-filled GitHub bug report (user pastes + submits). -->
+   <button class="btn" id="reportBug" title="Something does not work on a site. Copies HIB's diagnostic report for the page you are on and opens a pre-filled GitHub bug report: paste the report and press Submit."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13h4l2-6 4 12 2-6h4"/></svg>Report Issue</button>
+ </div>
+ <div class="grid" id="requestChoice" hidden style="margin-top:6px">
+  <button class="btn" id="reportSite" title="Ask for a new site to be supported. Copies HIB's diagnostic report for the page you are on and opens a pre-filled GitHub site request: paste the report and press Submit.">Request Site</button>
+  <button class="btn" id="reportFeature" title="Suggest a new feature or an improvement. Opens a pre-filled GitHub feature request (no diagnostic report is needed).">Request Feature</button>
+ </div>
+ <!-- Backup / Restore panel: stays inside the toolbar popup (no tab, no file chooser, no pasting) -->
+ <div id="restoreInline" hidden style="margin-top:8px;border-top:1px solid #d9dde4;padding-top:8px">
+  <div style="font-weight:700;margin-bottom:4px">Backups in your bookmarks</div>
+  <div style="font-size:11px;color:#566275;margin-bottom:3px">Backup folder (only HIB folders are listed; Save Settings writes here and the choice is remembered):</div>
+  <select id="backupFolder"></select>
+  <div style="font-size:11px;color:#566275;margin:8px 0 3px">Backups in this folder, newest first:</div>
+  <div class="row" style="margin:2px 0"><select id="backupList"></select><button class="btn" id="restoreFromList" style="min-height:28px;padding:4px 10px">Restore</button></div>
+  <div id="confirmBox" hidden style="margin-top:8px;padding:8px;border:1px solid #e0b36a;background:#fff7e6;border-radius:7px">
+   <div id="confirmText" style="font-size:12px;margin-bottom:6px"></div>
+   <button class="btn" id="confirmYes" style="min-height:28px;padding:4px 12px;display:inline-flex">Confirm restore</button>
+   <button class="btn" id="confirmNo" style="min-height:28px;padding:4px 12px;display:inline-flex;margin-left:6px">Cancel</button>
+  </div>
+ </div>
+</section>
+<section class="card">
+ <div class="sectionHead"><h2>Media Display Size</h2>
+  <button class="iconBtn" id="resetSizes" title="Reset to defaults" aria-label="Reset to defaults"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+ </div>
+ <div class="row"><label for="gallerySize">Gallery</label><select id="gallerySize"><option value="legacy">Automatic (fit screen)</option><option value="fit">Fit Screen</option><option value="original">Original</option></select></div>
+ <div class="row"><label for="mediaSize">Video</label><select id="mediaSize"></select></div>
+ <div class="row" id="customRow" style="display:none"><label for="customW">Custom size</label><div class="dims"><input type="number" id="customW" min="160" max="7680" step="1" value="1280" aria-label="Width"><span>×</span><input type="number" id="customH" min="90" max="4320" step="1" value="720" aria-label="Height"><span class="px">px</span></div></div>
+ <div class="sectionHead" style="margin-top:6px"><h2>Video Player</h2></div>
+ <div class="row"><label for="source">Preferred Source</label><select id="source"><option value="auto">Automatic (best available)</option><option value="mp4">MP4</option><option value="hls">HLS</option></select></div>
+</section>
+<section class="card">
+ <div class="sectionHead"><h2>Beta features</h2></div>
+ <div class="row"><label for="rc360toggle" style="flex:1">Capture streams that have no direct address</label><input type="checkbox" id="rc360toggle"></div>
+ <div style="font-size:11px;color:#566275;margin:3px 0">For pages like Mega or Google Drive. Turn it on, reload the video page, start the video, then right-click the card as usual. Affects every page until turned off.</div>
+ <div class="row" style="margin-top:8px"><label for="hevcToggle" style="flex:1">HEVC video support</label><input type="checkbox" id="hevcToggle"></div>
+ <div style="font-size:11px;color:#566275;margin:3px 0">For videos that use the HEVC (H.265) codec. Firefox plays them with a decoder already on your computer. Turn this on and HIB checks for one; if none is found it points you to the Microsoft Store. HIB installs nothing.</div>
+ <div id="hevcStatus" hidden style="font-size:11.5px;margin:4px 0"></div>
+ <button class="btn" id="hevcStore" hidden>Open Microsoft Store: HEVC Video Extensions</button>
+</section>
+<!-- Developer section: hidden. Click the "Tools" title 5 times (within 2.5 s) or press Alt+Shift+D to show / hide it; the choice is remembered in this profile (hibDevUnlocked). -->
+<section class="card" id="devSection" hidden>
+ <div class="sectionHead"><h2>Developer</h2></div>
+ <div class="row"><label for="devDiag" style="flex:1">Diagnostics mode</label><input type="checkbox" id="devDiag"></div>
+ <div style="font-size:11px;color:#566275;margin:3px 0 6px">On: automatic diagnostic window, 4 px card outlines and the support tools. Reload open pages after changing it. Click the Tools title 5 times (or press Alt+Shift+D) to hide this section.</div>
+ <div class="grid"><button class="btn" id="devOpen">Diagnostics tools</button></div>
+</section>
+<div id="status" role="status"></div>
+<script src="tools.js"></script></body></html>

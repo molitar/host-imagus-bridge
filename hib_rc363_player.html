@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>HIB RC380 Source Recovery TEST</title><style>
+:root{color-scheme:dark}body{background:#111820;color:#eff5fa;font:13px system-ui;margin:18px auto;max-width:1170px;padding:0 12px}video{width:min(100%,1100px);max-height:65vh;background:black}button{font:12px system-ui;cursor:pointer;padding:7px 6px;min-width:0;min-height:36px;white-space:normal;line-height:1.15;border:1px solid #526875;background:#203240;color:#eff5fa;border-radius:5px}button:hover{background:#315064}button:disabled{opacity:.46;cursor:not-allowed}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#1b2933;padding:12px;max-height:380px;overflow:auto}small{color:#abd0dd}.diagnostic-panel{border:1px solid #415664;border-radius:8px;padding:10px;margin:12px 0}.diag-row{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;margin:6px 0 11px}.diag-heading{font-size:12px;font-weight:700;color:#a7cbdf}.utility{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}.utility button{padding:6px 10px}.play-control{margin:8px 0}.play-control button{background:#245166;padding:8px 14px}.hidden-support{display:none!important}@media(max-width:710px){.diag-row{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:460px){.diag-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* RC410: embedded role (?embed=1). The same page is the user-facing player when it is shown inside the HIB window; everything that is
+   diagnostics (headings, buttons, panels, log) is hidden and the video fills the frame. See hib_rc410_embed.js. Only the Quality
+   selector stays (it fades in on hover). The stand-alone diagnostics role is NOT affected by these rules. */
+html.hib-embed body{margin:0;padding:0;max-width:none;background:#000;overflow:hidden}
+html.hib-embed h2,html.hib-embed body>p,html.hib-embed .diagnostic-panel,html.hib-embed .utility,html.hib-embed #log,
+html.hib-embed .hidden-support,html.hib-embed #directpanel,html.hib-embed #load,html.hib-embed .play-control small,
+html.hib-embed .play-control label:not(.hib-q){display:none!important}
+html.hib-embed video#video{display:block;width:100vw;height:100vh;max-height:none;object-fit:contain;background:#000}
+html.hib-embed .play-control{position:fixed;top:6px;right:6px;z-index:5;background:rgba(0,0,0,.55);padding:2px 8px;border-radius:5px;opacity:0;transition:opacity .2s}
+html.hib-embed body:hover .play-control{opacity:1}
+</style></head><body><h2>HIB RC386T — Source/Receiver Starvation Trace TEST</h2><p><small>Extension-origin MediaSource proof. Continuous ordered fragment test; requires live source capture and has bounded buffers. Not the website's blob or player.</small></p><div class="play-control"><button id="load">Load &amp; Stream Captured Media</button> <label style="display:inline-flex;align-items:center;gap:6px;margin-left:10px"><input type="checkbox" id="rc385kSmooth"/> Smooth Buffer (TEST, opt-in)</label><label class="hib-q" style="display:inline-flex;align-items:center;gap:6px;margin-left:10px">Quality <select id="rc398q" disabled><option>Not available</option></select></label><label style="display:inline-flex;align-items:center;gap:6px;margin-left:10px"><input type="checkbox" id="rc386drive" checked/> Drive source playback (muted)</label><small style="display:block">Opt-in: 10s startup, 8s resume, and bounded 11.5–12.5s per-track MSE forward feeding. Unconsumed fragments remain in the existing receiver.</small></div>
+<section class="diagnostic-panel" aria-label="HIB global diagnostics">
+ <div class="diag-heading">Capture / session</div><div class="diag-row">
+  <button id="status">Capture Status</button><button id="recapture">Enable Probe / Recapture</button><button id="sourcesession">Source Session</button><button id="pipelinediag">Capture Lifecycle</button><button id="copylog">Copy Capture Log</button>
+ </div>
+ <div class="diag-heading">Transport / independence</div><div class="diag-row">
+  <button id="transport">Live Transport</button><button id="independentprobe">Independent Acquisition</button><button id="postcloseprobe">Post-Close Range</button><button id="postcloseplay">Direct MP4 Playback</button><button id="acquisitionab">Acquisition A/B</button><button id="sourcedemand">Source Demand (TEST)</button>
+ </div>
+ <div class="diag-heading">Media / fragment structure</div><div class="diag-row">
+  <button id="trackdiag">Per-Track Capture</button><button id="bufferranges">SourceBuffers</button><button id="mp4timeline">MP4 Timeline</button><button id="fragmentcomplete">Fragment Completeness</button><button id="deliverydiag">HEVC Delivery</button>
+ </div>
+</section>
+<button id="recoverytest" class="hidden-support" tabindex="-1" aria-hidden="true">Source Recovery (legacy)</button>
+<button id="positioncompare" class="hidden-support" tabindex="-1" aria-hidden="true">Source vs HIB (legacy)</button>
+<div class="utility" aria-label="Session utilities"><button id="finish" disabled>Finish Stream at Video End</button><button id="clearcache">Clear Capture Cache</button><button id="clear">Clear Log</button></div>
+<div><video id="video" controls playsinline></video></div><div id="directpanel" hidden><p><strong>Independent MP4 TEST</strong> — playback in HIB with original Drive tab closed. Use the controls to start playback and seek.</p><video id="directvideo" controls playsinline preload="metadata"></video><button id="directstop">Stop Independent MP4 Test</button></div><pre id="log"></pre><script src="hib_rc363_player.js"></script><script src="hib_rc410_embed.js"></script></body></html>

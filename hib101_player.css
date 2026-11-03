@@ -1,0 +1,30 @@
+html,body{margin:0;width:100%;height:100%;background:#000;color:#fff;font:12px system-ui,sans-serif}*{box-sizing:border-box}#player{position:relative;width:100%;height:100%;background:#000;display:flex;flex-direction:column}video{width:100%;height:calc(100% - 42px);min-height:0;object-fit:contain;background:#000}#controls{display:flex;align-items:center;gap:7px;height:42px;padding:5px 9px;background:#202026;color:white}button{background:transparent;color:white;border:0;cursor:pointer;font-size:17px;padding:4px}button:focus-visible,input:focus-visible{outline:2px solid #9cf;outline-offset:2px}#seek{min-width:20px;flex:1}#volume{width:76px;flex:0 0 76px}output{min-width:34px;text-align:right;font-variant-numeric:tabular-nums}#current,#duration{font-variant-numeric:tabular-nums}#message{position:absolute;top:8px;left:8px;max-width:calc(100% - 16px);padding:5px 8px;border-radius:4px;background:#17171ccc;pointer-events:none}#message:empty{display:none}input{accent-color:#c5deff}
+video::cue{font-size:170%;font-family:Arial,sans-serif;color:rgba(255,255,255,.97);background-color:rgba(0,0,0,.42);text-shadow:0 1px 2px rgba(0,0,0,.95),0 0 1px #000}
+#message{z-index:2}#controls{flex-shrink:0}
+#player video{height:100%}#controls{position:absolute;bottom:0;left:0;right:0;z-index:3;background:rgba(32,32,38,var(--hib-bar-alpha,.7));transition:opacity .25s ease,visibility .25s ease}#player.hib-controls-idle #controls{opacity:0;visibility:hidden;pointer-events:none}#captions:disabled{opacity:.45;cursor:not-allowed}
+
+#captionSmaller,#captionLarger{font-size:12px;min-width:23px;padding:4px 1px}#captionSmaller:disabled,#captionLarger:disabled{opacity:.4}
+
+/* Shared buffer visualization with an accessible high-contrast scrubber thumb. */
+#seek{appearance:none;-moz-appearance:none;-webkit-appearance:none;height:6px;border:0;border-radius:6px;background:#454953;cursor:pointer;}
+#seek::-moz-range-track{height:6px;border:0;border-radius:6px;background:transparent;}
+#seek::-webkit-slider-runnable-track{height:6px;border:0;border-radius:6px;background:transparent;}
+#seek::-moz-range-thumb{width:17px;height:17px;border:1px solid white;border-radius:50%;background:#777e96;cursor:grab;}
+#seek::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;margin-top:-5.5px;border:1px solid white;border-radius:50%;background:#777e96;cursor:grab;}
+
+/* HIB RC24: independent timeline visualization, not browser-native range track. */
+#seekWrap{position:relative;min-width:20px;flex:1;height:26px;display:flex;align-items:center;}
+#bufferTrack{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);height:7px;border-radius:5px;background:#454953;overflow:hidden;pointer-events:none;}
+#playedRange,#bufferedRange{position:absolute;top:0;bottom:0;left:0;width:0;pointer-events:none;}
+#playedRange{background:#739ed7;z-index:2;}
+#bufferedRange{background:transparent;z-index:1;}
+#bufferedRange .bseg{position:absolute;top:0;bottom:0;background:#99bfe9;}   /* RC455: one segment per buffered range (earlier and later data stay visible after a seek) */
+#seekWrap #seek{position:relative;width:100%;min-width:0;flex:1;height:26px;appearance:none;-moz-appearance:none;-webkit-appearance:none;background:transparent!important;margin:0;z-index:3;}
+#seekWrap #seek::-moz-range-track{height:7px;background:transparent;border:0;}
+#seekWrap #seek::-webkit-slider-runnable-track{height:7px;background:transparent;border:0;}
+
+/* RC44 ASS overlay shares the video plane and follows playback/seek/fullscreen. */
+#hib-ass-layer{position:absolute;inset:0 0 42px;z-index:1;pointer-events:none;overflow:hidden;}
+.hib-ass-cue{position:absolute;white-space:pre-line;text-align:center;max-width:94%;font-weight:700;font-size:clamp(16px,2.8vw,38px);line-height:1.2;overflow-wrap:anywhere;}
+#seek::-moz-range-track{height:6px;border-radius:3px;background:var(--buf,#3a3d46)}#seek::-moz-range-progress{height:6px;border-radius:3px;background:#8ab4f8}
+#bufferedRange .bseg{min-width:4px;}#bufferedRange .bseg.fc{background:#58a583;}
