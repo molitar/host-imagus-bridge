@@ -9,12 +9,21 @@
 
 > **HIB works only on the sites you add** (toolbar button → Tools → Manage Sites). On every other site it does nothing: it does not read, change or collect anything from the page. HIB has no account, no analytics and sends nothing to any server of its own.
 
+**Documentation:** [Tutorial](https://github.com/molitar/host-imagus-bridge/wiki/Tutorial) (your first video, step by step, with pictures) · [User Guide](https://github.com/molitar/host-imagus-bridge/wiki/User-Guide) · [Installing a Preview Build](https://github.com/molitar/host-imagus-bridge/wiki/Installing-a-Preview-Build) · [Wiki](https://github.com/molitar/host-imagus-bridge/wiki)
+
 ## What it is
 
 Host Imagus Bridge is a Firefox add-on that works next to [Imagus Reborn](https://addons.mozilla.org/firefox/addon/imagus-reborn/).
 
 * **Pictures:** pages that wrap a picture behind a second page (image hosts, link shorteners, gallery pages) are resolved for you, and HIB's own gallery steps in when Imagus cannot show the picture.
 * **Videos:** hover a card, wait for the ready mark, right-click, and the **HIB player** opens on top of the page: no new tab, no ads, no leaving the list.
+
+## What's new in 3.0.2 and 3.0.1
+
+Bug-fix releases on top of 3.0.0 (details in the [CHANGELOG](CHANGELOG.md)):
+
+* **3.0.2:** the blocked-autoplay warning shows as soon as you hover a card; the **!** mark is back for a dead link, a site that is down or an unsupported video (the apostrophe is only for a landing page); Pick Card outlines are 4 px again; Diagnostics mode is off when its section is hidden; slow servers are handled better.
+* **3.0.1:** a **Resolution** selector (360p to 1080p) on sites that offer several resolutions and a **Quality** selector for HLS streams; the best quality is played first; the seek lock is shorter; a broken streaming mirror no longer stops a video from opening; A− / A+ also resize styled subtitles; the optional **Download button** (off by default).
 
 ## What's new in 3.0.0
 
@@ -35,13 +44,14 @@ Full list: [CHANGELOG](CHANGELOG.md).
 ## Features
 
 ### Video
-* Hover a card for the hover delay (1–10 seconds, your choice); the video is scanned and the card shows a **−** when it is ready. Right-click it to open the player. `Ctrl + Right Shift` does the same for the card under the pointer; `Ctrl + right-click` stays with Imagus Reborn.
+* Hover a card for the hover delay (1–10 seconds, your choice); a spinner shows while the video is checked, then the card shows a **−** (ready to play), an **'** (a landing page with no video of its own) or a **!** (a dead link, a site that is down or an unsupported video). Right-click it to open the player. `Ctrl + Right Shift` does the same for the card under the pointer; `Ctrl + right-click` stays with Imagus Reborn.
 * **Scan Site for Videos**: a site is registered for good only after a real playback has been verified, so a wrong guess never sticks.
 * **Pick Card**: point at the cards HIB should treat as videos on a page it did not recognise.
 * Plays **MP4, HLS and DASH**; seek bar with buffered range, volume, mute, full screen.
 * Space = play / pause, ← / → = jump (5–30 s), ↑ / ↓ = volume (step set in the title bar), **Bar** = control-bar opacity.
 * **Resume** position per episode.
-* Video pieces are kept in **memory only**, one video at a time, and cleared when the player closes. Nothing is saved to disk.
+* Video pieces are kept in **memory only**, one video at a time, and cleared when the player closes. Nothing is saved to disk unless you use the optional **Download button** (Tools → Beta features, off by default), which saves the video, the subtitle language you are watching and a separate sound file if the stream has one.
+* If Firefox blocks autoplay for the site, HIB tells you at once and where to allow it (see the [Tutorial](https://github.com/molitar/host-imagus-bridge/wiki/Tutorial)).
 * HEVC (H.265) plays through a decoder already on your computer (*Beta*; HIB installs nothing).
 
 ### Subtitles
@@ -86,12 +96,12 @@ Full list: [CHANGELOG](CHANGELOG.md).
 
 ## Installation
 
-1. Download `Host_Imagus_Bridge_v3.0.0.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page, or install it from addons.mozilla.org when it is listed.
+1. Install it from [addons.mozilla.org](https://addons.mozilla.org/en-US/firefox/addon/host-imagus-bridge/), or download `host_imagus_bridge-<version>.xpi` from the [Releases](https://github.com/molitar/host-imagus-bridge/releases) page (pre-releases are marked; see [Installing a Preview Build](https://github.com/molitar/host-imagus-bridge/wiki/Installing-a-Preview-Build)).
 2. Signed releases install in regular Firefox. For an unsigned pre-release use Firefox Developer Edition, Nightly or ESR with `xpinstall.signatures.required` set to `false`, or load it temporarily from `about:debugging`.
 3. Install [Imagus Reborn](https://addons.mozilla.org/firefox/addon/imagus-reborn/) as well: HIB complements it.
 4. Open the toolbar button → **Tools → Manage Sites** and add the sites you want HIB to work on.
 
-Installs **over 2.1.5** (same add-on): your settings are kept. Firefox may ask you to approve the new permissions when you update.
+Installs **over 3.0.x and 2.1.5** (same add-on): your settings are kept. Firefox may ask you to approve the new permissions when you update.
 
 ## Compatibility
 
@@ -127,4 +137,5 @@ GNU General Public License v3.0 — see [LICENSE](LICENSE).
 
 ## Community & Support
 
+* New to HIB? Start with the [Tutorial](https://github.com/molitar/host-imagus-bridge/wiki/Tutorial) and the [User Guide](https://github.com/molitar/host-imagus-bridge/wiki/User-Guide).
 * Found a bug or want a site supported? Use **Tools → Report Issue** / **Submit Request** in the add-on, or open an [issue](https://github.com/molitar/host-imagus-bridge/issues).
