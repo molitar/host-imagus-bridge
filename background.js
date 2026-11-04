@@ -90,6 +90,42 @@ browser.runtime.onMessage.addListener((msg,sender)=>{
   return Promise.resolve({ok:true});
  }catch(_){return Promise.resolve({ok:false});}
 });
+/* 3.0.1: the resolution list of a KVS player page (video_url / video_alt_url / video_alt_url2 + the _text labels). Fetched fresh when the HIB player opens, because the
+ * addresses carry short-lived tokens. Read-only: only an https page, 12 s limit, nothing stored. */
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-kvs-variants')return undefined;
+ return (async()=>{
+  try{
+   const page=new URL(msg.page);if(page.protocol!=='https:')return {ok:false,error:'not https'};
+   const ctl=new AbortController();const tm=setTimeout(()=>ctl.abort(),12000);
+   const r=await fetch(page.href,{credentials:'include',cache:'no-store',signal:ctl.signal});clearTimeout(tm);
+   const html=(await r.text()).slice(0,1500000).split(String.fromCharCode(92)+'/').join('/');
+   const out=[],seen=new Set();
+   const re=/video_((?:alt_)?url[0-9]*):\s*'(https?:[^']+)'/g;let m;
+   while((m=re.exec(html))){
+    const url=m[2];if(seen.has(url))continue;seen.add(url);
+    const lm=new RegExp('video_'+m[1]+'_text:\\s*\'([^\']*)\'').exec(html);
+    const label=lm?lm[1].trim():'';
+    const rn=/([0-9]{3,4})p?/.exec(label)||/_([0-9]{3,4})p?[.]mp4/.exec(url);
+    out.push({url,label,res:rn?Number(rn[1]):0});
+   }
+   out.sort((a,b)=>b.res-a.res);
+   return {ok:true,variants:out.slice(0,8)};
+  }catch(e){return {ok:false,error:String(e)};}
+ })();
+});
+/* 3.0.1: hands the video address the HIB player plays (and the page's other resolutions) to the Universal Media Downloader add-on, which cannot see this player's requests. */
+browser.runtime.onMessage.addListener((msg,sender)=>{
+ if(msg?.type!=='hib-umd-offer')return undefined;
+ const tabId=sender&&sender.tab?sender.tab.id:-1;
+ if(!(tabId>=0)||!Array.isArray(msg.items))return Promise.resolve({ok:false});
+ const items=msg.items.slice(0,12).filter(x=>x&&typeof x.url==='string'&&/^https:/i.test(x.url)).map(x=>({url:x.url,label:String(x.label||'').slice(0,40),kind:['hls','dash','video'].includes(x.kind)?x.kind:'video',referrer:String((hib101MediaOriginHints.get(x.url)||{}).referrer||'').slice(0,2000)}));   // 3.0.1: the referrer HIB verified for this address
+ const payload={action:'hib-offer',tabId,items,title:String(msg.title||'').slice(0,200),referrer:String(msg.referrer||'').slice(0,2000)};
+ return (async()=>{
+  for(const id of ['umd@molitar.local']){try{await browser.runtime.sendMessage(id,payload);return {ok:true};}catch(_){}}
+  return {ok:false};
+ })();
+});
 /*
  * HIB-V216-SITE-MANAGER
  *
@@ -764,7 +800,7 @@ function hibRc297SlugScore(candidateUrl,target){
  }catch(_){return 0;}
 }
 /* RC297: resolution label in a URL (720p -> 720), used to pick the best of several configured qualities. */
-function hibRc297Res(u){const m=/([0-9]{3,4})p/.exec(String(u));return m?Number(m[1]):0;}
+function hibRc297Res(u){const t=String(u),m=/(?:^|[^0-9])([0-9]{3,4})p(?![a-z0-9])/.exec(t)||/_([0-9]{3,4})[.](?:mp4|webm)/.exec(t);return m?Number(m[1]):0;}   /* 3.0.1: also name_360.mp4 */
 /* RC297: a configured source counts only if the server really answers a 2-byte range request with video. */
 async function hibRc297RangeOk(url){
  try{
@@ -1207,7 +1243,7 @@ const hibRc133ResolveMedia=(msg,sender)=>{
        const tx=raw.split(bs+'/').join('/');
        for(const m of (tx.match(/https?:[/][/][A-Za-z0-9%_.~:/?#@!$&()*+,;=-]+/g)||[])){
         if(sn>=30)break;
-        try{const u=new URL(m);if(/[.](?:mp4|m3u8|webm|mpd)$/i.test(u.pathname)&&!seenS.has(u.href)){seenS.add(u.href);add(u.href,'scriptSource',null);sn++;}}catch(_){}
+        try{const u=new URL(m);if(/[.](?:mp4|m3u8|webm|mpd)[/]?$/i.test(u.pathname)&&!seenS.has(u.href))   /* 3.0.1: a trailing slash is allowed (KVS players: .../video_720p.mp4/?token) - before, the other resolutions listed in the page were never seen and only the playing 360p was left */{seenS.add(u.href);add(u.href,'scriptSource',null);sn++;}}catch(_){}
        }}
      }catch(_){}
      // RC295: playlists seen on the network. some players serve HLS from an extension-less path, so
@@ -2079,12 +2115,13 @@ browser.runtime.onMessage.addListener((msg)=>{
    /* RC459: a refusal may only mean "no Referer" (hotlink protection): flag the address, let the Referer hook add the page that verified it, and ask once more. A second refusal = the file is gone / its signature ran out. */
    if([401,403,410,412].includes(r.status)){try{if(r.body)r.body.cancel();}catch(_){}const hh=hib101MediaOriginHints.get(u.href);if(hh&&!hh.needsReferer){hh.needsReferer=true;hibRefererSync();r=await probe();}}
    clearTimeout(t);
-   let ok=!(r.status===404||r.status===410||r.status===412);
-   if(r.status===200&&isHls){const full=await r.text();ok=full.slice(0,64).trimStart().startsWith('#EXTM3U');if(ok)await hibRefererNeedProbe(u,full,0).catch(()=>{});}
+   let ok=!(r.status===404||r.status===410||r.status===412),reason='';
+   if(r.status===200&&isHls){const full=await r.text();ok=full.slice(0,64).trimStart().startsWith('#EXTM3U');if(!ok)reason='not-a-manifest';if(ok)await hibRefererNeedProbe(u,full,0).catch(()=>{});}
+   else if(r.status===200&&/\.mpd(?:[?#]|$)/i.test(u.pathname)){const full=await r.text();ok=/<MPD[\s>]/i.test(full.slice(0,4000));if(!ok)reason='not-a-manifest';}   // 3.0.1: a streaming mirror that answers with a web page instead of the manifest
    else{try{if(r.body)r.body.cancel();}catch(_){}}
    /* RC465: 401/403 after the Referer retry is NOT 'dead': hosts behind a DDoS guard / session cookie refuse a request made outside the page and still serve the player's own (saved cards were dropped and re-scanned in a loop). Expired signatures are caught by hibUrlExpired (stale) instead. */
    console.info('[HIB RC346]',{status:'CACHED_URL_CHECK',alive:ok,http:r.status,host:u.hostname});
-   return {alive:ok,status:r.status};
+   return {alive:ok,status:r.status,reason};
   }catch(e){clearTimeout(t);console.info('[HIB RC346]',{status:'CACHED_URL_CHECK',alive:true,error:String(e)});return {alive:true,error:String(e)};/* RC450: a failed check never discards a saved card */}
  })();
 });

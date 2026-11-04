@@ -22,6 +22,8 @@
 const BRIDGE='hib-unified-v101';
 const $=id=>document.getElementById(id);
 const video=$('media'),message=$('message'),play=$('play'),seek=$('seek'),current=$('current'),duration=$('duration'),mute=$('mute'),volume=$('volume'),label=$('volumeLabel'),captions=$('captions');
+/* 3.0.1: the volume bar and its percentage are ONE unit (no flex gap between them), so the number is read as belonging to the bar */
+{const w=document.createElement('span');w.id='volWrap';w.style.cssText='display:flex;align-items:center;gap:4px;flex:0 0 auto';volume.parentNode.insertBefore(w,volume);w.appendChild(volume);w.appendChild(label);label.style.minWidth='30px';label.style.margin='0';label.style.textAlign='left';}
 // Keep player timestamps and controls out of browser/page translation systems.
 for(const node of [document.documentElement,$('player'),$('controls'),current,duration,seek]){node.setAttribute('translate','no');node.classList.add('notranslate');}
 
@@ -156,6 +158,7 @@ function updateCaptionStyle(){
 function changeCaptionScale(change){
  captionScale=Math.max(1.5,Math.min(14.0,Math.round((captionScale+change)*10)/10));
  updateCaptionStyle();
+ try{if(window.hibAssSubtitles&&window.hibAssSubtitles.has())window.hibAssSubtitles.step(change>0?1.15:1/1.15);}catch(_){}   // 3.0.1: styled (ASS) subtitles follow A- / A+ too
  browser.storage.local.set({[CAPTION_KEY]:{scale:captionScale}}).catch(()=>{});
 }
 captionSmaller.addEventListener('click',()=>changeCaptionScale(-0.4));
@@ -458,7 +461,7 @@ function start(url,selected){
    dash=dashjs.MediaPlayer().create();
    const E=dashjs.MediaPlayer.events;
    dash.on(E.STREAM_INITIALIZED,()=>{trace('DASH_STREAM_INITIALIZED');status('DASH_READY');playWhenBuffered();});
-   dash.on(E.ERROR,e=>{trace('DASH_ERROR',{error:String(e?.error?.message||e?.event?.message||e?.error?.code||'DASH_ERROR')});traceFailure('DASH_ERROR');const detail=String(e?.error?.message||e?.event?.message||e?.error?.code||'DASH_ERROR');status('DASH_ERROR',detail);send('error',{code:'DASH_ERROR',detail});});
+   dash.on(E.ERROR,e=>{trace('DASH_ERROR',{error:String(e?.error?.message||e?.event?.message||e?.error?.code||'DASH_ERROR')});traceFailure('DASH_ERROR');const detail=String(e?.error?.message||e?.event?.message||e?.error?.code||'DASH_ERROR');status('DASH_ERROR',detail);send('error',{code:'DASH_ERROR',detail});if(/pars|manifest|load/i.test(detail))needFresh('dash '+detail,true);   /* 3.0.1: some streaming sites hand out several mirror hosts and one of them answers with a web page instead of the manifest: scan again, the page picks another host */});
    for(const [key,eventName] of Object.entries(E)){
     if(!/ERROR|FRAGMENT|MANIFEST|BUFFER|QUALITY|PLAYBACK/.test(key)||key==='ERROR')continue;
     dash.on(eventName,e=>trace('DASH_'+key,{type:e?.type,error:e?.error?.message||null}));
@@ -621,7 +624,7 @@ window.addEventListener('message',e=>{
    const u=new URL(d.url);if(u.protocol!=='https:'||!u.pathname.toLowerCase().endsWith('.ass'))throw Error('Invalid ASS URL');
    const response=await fetch(u.href,{credentials:'omit'});if(!response.ok)throw Error('HTTP '+response.status);
    const txt=await response.text();if(txt.length>3000000||!/^\s*(?:\uFEFF)?\[Script Info\]/i.test(txt))throw Error('Not an ASS subtitle document');
-   const count=window.hibAssSubtitles.attach(txt);captions.hidden=false;captions.disabled=false;captions.title='Toggle ASS subtitles';
+   (window.hibDlExtra=window.hibDlExtra||[]).push({name:'subtitles',ext:'ass',text:txt});const count=window.hibAssSubtitles.attach(txt);captions.hidden=false;captions.disabled=false;captions.title='Toggle ASS subtitles';
    status('ASS_SUBTITLES_READY',count+' subtitle events');
   }catch(error){send('error',{code:'ASS_SUBTITLES_FAILED',detail:String(error)});}})();return;
  }
@@ -714,10 +717,14 @@ function pfClear(){pfStore.clear();pfBytes=0;pfDone.clear();pfSeen.clear();pfEnd
     const v=t[k];return typeof v==='function'?v.bind(t):v;},
    set(t,k,v){t[k]=v;return true;}});
   return p;}
- HibXHR.__hib=true;HibXHR.prototype=Real.prototype;window.XMLHttpRequest=HibXHR;})();let pfQueue=[],pfBusy=0,pfOff=false,pfHit=0,pfMiss=0,pfConc=3,pfSeg=10;const pfLastSeg=new Map();let pfHls=null;
+ HibXHR.__hib=true;HibXHR.prototype=Real.prototype;window.XMLHttpRequest=HibXHR;})();let pfQueue=[],pfBusy=0,pfPauseUntil=0,pfOff=false,pfHit=0,pfMiss=0,pfConc=3,pfSeg=10;const pfLastSeg=new Map();let pfHls=null;
 // starts queued prefetch requests, up to the current concurrency (pfConc)
+/* 3.1: only a real END of the stream (404 / 410 / 416: no such segment) marks the numbered family as finished. Before, ANY failed request (429 / 5xx / a dropped
+ * connection) did that, and the prefetch (the green "cache" bar) then stopped for the rest of the video. Other failures put the address back and rest 6 s. */
+function pfFail(u){pfSeen.delete(u);pfPauseUntil=Date.now()+6000;}
 function pfPump(){if(pfOff){pfQueue.length=0;return;}
- while(pfBusy<pfConc&&pfQueue.length){const u=pfQueue.shift();pfBusy++;fetch(u).then(r=>r.ok?r.arrayBuffer():null).then(b=>{if(b)pfPut(u,b);else pfEnd.add(pfKey(u));}).catch(()=>{}).finally(()=>{pfBusy--;pfPump();});}}
+ if(Date.now()<pfPauseUntil)return;
+ while(pfBusy<pfConc&&pfQueue.length){const u=pfQueue.shift();pfBusy++;fetch(u).then(r=>{if(r.ok)return r.arrayBuffer();if(r.status===404||r.status===410||r.status===416)return null;pfFail(u);return undefined;}).then(b=>{if(b)pfPut(u,b);else if(b===null)pfEnd.add(pfKey(u));}).catch(()=>{pfFail(u);}).finally(()=>{pfBusy--;pfPump();});}}
 // queues segment addresses for prefetch (known / already ended ones are skipped)
 function pfAdd(urls){for(const u of urls){if(!u||pfSeen.has(u)||pfEnd.has(pfKey(u)))continue;if(pfSeen.size>900){pfSeen.clear();}pfSeen.add(u);pfQueue.push(u);}pfPump();}
 // seconds of video buffered ahead of the playhead
@@ -873,7 +880,7 @@ let seekLocked=false,fcCtype='';
 function setSeekLock(on){seekLocked=!!on;try{seek.disabled=!!on;seek.title=on?'Jumping unlocks when the cache is complete (the green bar is full)':'';seek.style.opacity=on?'.55':'';}catch(_){}}
 let fcActive=false,fcStarted=false,fcAbort=false,fcUrl=null,fcMap=null,aheadEl=null,fcFixState='';   // fcFixState: '' unknown, 'ok' repaired index in use, 'none' index fine, 'failed'
 async function fullCacheStart(url){
- if(fcStarted||fcActive)return;fcStarted=true;fcAbort=false;
+ if(fcStarted||fcActive)return;fcStarted=true;fcAbort=false;const lockT0=Date.now();
  const status0=(c,d)=>{try{status(c,d);}catch(_){}};
  try{
   const head=await fetch(url,{headers:{Range:'bytes=0-0'}});
@@ -882,19 +889,19 @@ async function fullCacheStart(url){
   const total=Number(cr[1]);fcTotal=total;fcCtype=ctype;try{await head.arrayBuffer();}catch(_){}
   if(!(total>=4e6&&total<=7e8)){trace('FULL_CACHE_SKIP',{why:'size',total});return;}
   setSeekLock(true);                                    // RC500: no jumping until the copy is complete
-  {const lockedAt=Date.now();let lastDone=0,lastAt=Date.now();const wd=setInterval(()=>{if(!seekLocked||fcActive||fcAbort){clearInterval(wd);return;}const d=fcMap?fcMap.filter(Boolean).length:0;if(d!==lastDone){lastDone=d;lastAt=Date.now();}
+  {const lockedAt=lockT0,aheadOk=()=>{try{const dur=video.duration;if(!(dur>0))return false;if(bufferedAheadSec()>=45)return true;if(!fcMap||!fcMap.length)return false;const nn=fcMap.length;let k=Math.min(nn-1,Math.floor((video.currentTime/dur)*nn)),c=0;while(k<nn&&fcMap[k]){c++;k++;}return (c*CH/total)*dur>=45;}catch(_){return false;}};let lastDone=0,lastAt=Date.now();const wd=setInterval(()=>{if(!seekLocked||fcActive||fcAbort){clearInterval(wd);return;}const d=fcMap?fcMap.filter(Boolean).length:0;if(d!==lastDone){lastDone=d;lastAt=Date.now();}
    // RC506: the lock is a short safety, not a wait for a slow server: at most 45 s (measured: the longest a copy needed to complete) and 25 s without any progress, then jumping is allowed even if the copy is not finished (jumps then use the stream itself / the partial copy)
-   if(Date.now()-lockedAt>45000||Date.now()-lastAt>25000){setSeekLock(false);trace('SEEK_LOCK_RELEASED',{done:d,of:fcMap?fcMap.length:0});clearInterval(wd);}},2000);}
+   if(Date.now()-lockedAt>45000||Date.now()-lastAt>25000||aheadOk()){setSeekLock(false);trace('SEEK_LOCK_RELEASED',{done:d,of:fcMap?fcMap.length:0,why:aheadOk()?'45 s ahead':'time'});clearInterval(wd);}},500);}   /* 3.0.1: 45 s of time OR 45 s of video already buffered / copied ahead of the playhead; the clock starts when the copy starts, checked every 0.5 s */
   const CH=2*1024*1024,n=Math.ceil(total/CH),parts=new Array(n),zeroPiece=new Uint8Array(CH),mime=/video\/webm/i.test(String(fcCtype))||/[.]webm(?:$|[?#\/])/i.test(url)?'video/webm':'video/mp4';fcMap=new Array(n).fill(false);let done=0,failed=false;
   const inflight=new Set(),ctls=new Set();
   /* RC489: a file whose index lists almost no sync samples (hentaisea: one in 34 084 frames, although a random-access picture exists every ~10 s) makes every jump decode from
    * the first frame. The corrected index (hibMp4Fix) is built from the first piece + a few hundred small reads and is used in every local copy made below. */
-  let fix=null;
+  let fix=null,plain=null;   // plain: the parsed index of a file whose index needs no repair (3.1: used to play from the local copy during stalls)
   const readBytes=async(o,l)=>{const k0=Math.floor(o/CH),k1=Math.floor((o+l-1)/CH);if(k0===k1&&parts[k0]){const a0=o-k0*CH;return parts[k0].subarray(a0,a0+l);}
    const r=await fetch(fcLiveUrl||url,{headers:{Range:'bytes='+o+'-'+(o+l-1)}});if(r.status!==206)throw Error('status '+r.status);return new Uint8Array(await r.arrayBuffer());};
   const prepFix=async()=>{try{
    for(let i=0;i<200&&!parts[0]&&!fcAbort;i++)await new Promise(res=>setTimeout(res,300));if(!parts[0]||fcAbort||!window.hibMp4Fix)return;
-   const info=hibMp4Fix.analyze(parts[0]);if(!info||!info.needsFix){fcFixState='none';trace('MP4_INDEX_OK',{info:!!info});return;}
+   const info=hibMp4Fix.analyze(parts[0]);if(!info||!info.needsFix){if(info)plain=info;fcFixState='none';trace('MP4_INDEX_OK',{info:!!info});return;}
    const syncs=await hibMp4Fix.findSyncs(info,readBytes,{trace:x=>trace('MP4_SYNC_SCAN',x)});if(fcAbort)return;
    const pt=hibMp4Fix.patch(parts[0],info,syncs);if(!pt){fcFixState='failed';trace('MP4_PATCH_FAILED');return;}
    fix={info,syncs,head:pt.head,origLen:pt.origLen};fcFixState='ok';trace('MP4_SYNC_FIXED',{syncs:syncs.length,was:info.stssCount,delta:pt.delta});
@@ -903,36 +910,47 @@ async function fullCacheStart(url){
    if(fix&&parts[0]){list.push(fix.head);list.push(parts[0].subarray(fix.origLen));from=1;}
    for(let k=from;k<=last;k++){const len=(k===n-1)?(total-(n-1)*CH):CH;list.push(parts[k]||(len===CH?zeroPiece:new Uint8Array(len)));}
    return new Blob(list,{type:mime});};
-  const timeAtByte=(bytePos)=>{if(!fix)return (bytePos/Math.max(1,total))*(video.duration||0);const o=fix.info.offs;let lo=0,hi=o.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(o[m]<=bytePos)lo=m;else hi=m-1;}return lo/(fix.info.fps||24);};
+  const timeAtByte=(bytePos)=>{const I=fix?fix.info:plain;if(!I)return (bytePos/Math.max(1,total))*(video.duration||0);const o=I.offs;let lo=0,hi=o.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(o[m]<=bytePos)lo=m;else hi=m-1;}return lo/(I.fps||24);};
   /* the next piece is always the nearest MISSING one at / after the playhead (it follows the user's seeks) */
   const pick=()=>{if(!parts[0]&&!inflight.has(0))return 0;
-  const dur=video.duration||1,p=Math.min(n-1,Math.max(0,Math.floor((video.currentTime/dur)*n)));for(let d=0;d<n;d++){const k=(p+d)%n;if(!parts[k]&&!inflight.has(k))return k;}return -1;};
+  const dur=video.duration||1,p=Math.min(n-1,Math.max(0,Math.floor((Math.max(0,video.currentTime-12)/dur)*n)));   /* 3.1: from 12 s BEFORE the playhead: a local copy that plays the stalled spot must start at the picture group before it */for(let d=0;d<n;d++){const k=(p+d)%n;if(!parts[k]&&!inflight.has(k))return k;}return -1;};
   /* a seek or a stall belongs to the player's own request: the copy's requests in flight are dropped and the copy waits until playback is smooth again */
   const onSeek=()=>{for(const c of ctls){try{c.abort();}catch(_){}}};
   video.addEventListener('seeking',onSeek);
-  const oneWorker=async()=>{
+  /* 3.1 SLOW-PER-CONNECTION SERVERS (rule34video: ~300 KB/s per request while the video needs ~330 KB/s; parallel requests each keep the full speed).
+   * The speed of finished pieces is measured; when a connection is slower than 1.5x the video's own data rate the copy no longer steps aside while playback stalls
+   * (it is the only way to get ahead) and two extra workers join. On a fast server nothing changes (the copy still waits for smooth playback). */
+  let pieceSpeed=0,extrasOff=false;   // extrasOff: set at the first failed request; back to the careful 3.0.0 behaviour
+  const slowSrc=()=>{if(extrasOff)return false;const b=(video.duration>0)?total/video.duration:0;return pieceSpeed>0&&b>0&&pieceSpeed<b*1.5;};
+  const oneWorker=async(extra)=>{
+   let rounds=0;
    while(!failed&&!fcAbort){
-    while(!fcAbort&&!video.ended&&(video.seeking||(!video.paused&&(video.readyState<3||pfAheadSeconds()<3))))await new Promise(res=>setTimeout(res,500));
+    while(!fcAbort&&!video.ended&&(video.seeking||(pieceSpeed>0&&!slowSrc()&&!video.paused&&(video.readyState<3||pfAheadSeconds()<3))))await new Promise(res=>setTimeout(res,500));
+    if(extra&&!slowSrc()){if(pick()<0||extrasOff&&done>=n)return;await new Promise(res=>setTimeout(res,1000));continue;}
     const k=pick();if(k<0)return;
     inflight.add(k);
     const a=k*CH,b=Math.min(total-1,a+CH-1);
     let ok=false,bad=0;
-    while(!ok&&bad<3&&!fcAbort&&!failed){
-     const ctl=new AbortController();ctls.add(ctl);
+    while(!ok&&bad<8&&!fcAbort&&!failed){
+     const ctl=new AbortController();ctls.add(ctl);let timedOut=false;const t0=performance.now();const tmo=setTimeout(()=>{timedOut=true;try{ctl.abort();}catch(_){}},30000);
      try{
       const r=await fetch(fcLiveUrl||url,{headers:{Range:'bytes='+a+'-'+b},signal:ctl.signal});
       const m=/^bytes (\d+)-(\d+)\/(\d+)$/.exec(r.headers.get('Content-Range')||'');
-      if(r.status!==206||!m||Number(m[3])!==total||Number(m[1])!==a){failed=true;trace('FULL_CACHE_BAD_PIECE',{k,status:r.status,range:r.headers.get('Content-Range')});break;}
+      if(r.status===206&&m&&(Number(m[3])!==total||Number(m[1])!==a)){failed=true;trace('FULL_CACHE_BAD_PIECE',{k,status:r.status,range:r.headers.get('Content-Range')});break;}   // the file is not the same one
+      if(r.status!==206||!m){extrasOff=true;bad++;trace('FULL_CACHE_PIECE_STATUS',{k,status:r.status,bad});try{await r.arrayBuffer();}catch(_){}await new Promise(res=>setTimeout(res,Math.min(15000,600*bad*bad)));continue;}   // 403 / 429 / 5xx: expired address or a busy server, try again
       const buf=new Uint8Array(await r.arrayBuffer());
       if(buf.length!==b-a+1)throw Error('short piece');
+      {const sp=buf.length/Math.max(0.05,(performance.now()-t0)/1000);pieceSpeed=pieceSpeed?pieceSpeed*0.6+sp*0.4:sp;}
       parts[k]=buf;done++;ok=true;if(fcMap)fcMap[k]=true;
      }catch(e){
-      if(e&&e.name==='AbortError'){while(!fcAbort&&(video.seeking||(!video.paused&&video.readyState<3)))await new Promise(res=>setTimeout(res,500));}   // dropped for the player's sake: try again, not a failure
-      else{bad++;await new Promise(res=>setTimeout(res,600*bad));}
-     }finally{ctls.delete(ctl);}
+      if(timedOut){extrasOff=true;bad++;trace('FULL_CACHE_PIECE_TIMEOUT',{k,bad});await new Promise(res=>setTimeout(res,Math.min(15000,600*bad*bad)));}
+      else if(e&&e.name==='AbortError'){while(!fcAbort&&(video.seeking||(!video.paused&&video.readyState<3)))await new Promise(res=>setTimeout(res,500));}   // dropped for the player's sake: try again, not a failure
+      else{extrasOff=true;bad++;await new Promise(res=>setTimeout(res,Math.min(15000,600*bad*bad)));}
+     }finally{clearTimeout(tmo);ctls.delete(ctl);}
     }
     inflight.delete(k);
-    if(!ok&&!failed&&!fcAbort){failed=true;return;}
+    if(ok)rounds=0;
+    else if(!failed&&!fcAbort){if(++rounds>10){failed=true;return;}trace('FULL_CACHE_REST',{k,rounds});await new Promise(res=>setTimeout(res,Math.min(60000,5000*rounds)));}
    }
   };
   trace('FULL_CACHE_START',{total,pieces:n});
@@ -944,10 +962,15 @@ async function fullCacheStart(url){
   let mode='native',sparseUrl=null,sparseLast=-1,sparseEndT=0,swapping=false;
   
   const coveredLast=(t,secs)=>{
-   if(!fix)return -1;                                                            // partial copies are only used for files whose index had to be repaired
-   const I=fix.info,fps=I.fps||24,s=Math.min(I.n-1,Math.max(0,Math.floor(t*fps)));
-   let lo=0,hi=fix.syncs.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(fix.syncs[m]-1<=s)lo=m;else hi=m-1;}   // the sync sample at / before the target
-   const e=Math.min(I.n-1,s+Math.ceil(secs*fps)),a=Math.floor(I.offs[fix.syncs[lo]-1]/CH),b=Math.min(n-1,Math.floor((I.offs[e]+I.sizes[e])/CH));
+   /* 3.1: a partial local copy is now used for EVERY file whose index (moov) sits in front, not only the repaired ones: while the stream itself stalls (a server that
+    * answers slower than the video plays) the pieces the copy already holds are played instead. A file with a sound index has no sync table to start from, so the copy starts
+    * 12 s before the target (longer than any normal group of pictures) and holds one piece more at the end (sound runs slightly ahead of the picture). */
+   const I=fix?fix.info:plain;if(!I)return -1;
+   const fps=I.fps||24,s=Math.min(I.n-1,Math.max(0,Math.floor(t*fps)));
+   let from;
+   if(fix){let lo=0,hi=fix.syncs.length-1;while(lo<hi){const m=(lo+hi+1)>>1;if(fix.syncs[m]-1<=s)lo=m;else hi=m-1;}from=fix.syncs[lo]-1;}   // the sync sample at / before the target
+   else from=Math.max(0,s-Math.ceil(12*fps));
+   const e=Math.min(I.n-1,s+Math.ceil(secs*fps)),a=Math.floor(I.offs[from]/CH),b=Math.min(n-1,Math.floor((I.offs[e]+I.sizes[e])/CH)+(fix?0:1));
    if(!parts[0])return -1;for(let k=Math.max(1,a);k<=b;k++)if(!parts[k])return -1;return b;};
   const toNative=(pos,why)=>{if(mode==='native')return;trace('FULL_CACHE_TO_NATIVE',{why,pos});mode='native';swapping=true;const old=sparseUrl;sparseUrl=null;try{video.addEventListener('loadedmetadata',()=>{try{video.currentTime=pos;}catch(_){}swapping=false;void playSafely();if(old)setTimeout(()=>{try{URL.revokeObjectURL(old);}catch(_){}},3000);},{once:true});video.src=fcLiveUrl||url;}catch(_){swapping=false;}};
   const swapSparse=(t,last,why)=>{
@@ -970,7 +993,7 @@ async function fullCacheStart(url){
    else if(mode==='native'&&!video.paused&&video.readyState<3&&video.currentTime>0){const last=coveredLast(t,30);if(last>=0)swapSparse(t,last,'stall');}},1000);
   video.addEventListener('error',()=>{if(mode==='sparse'&&!swapping)toNative(video.currentTime||0,'error');});
   prepFix();
-  await Promise.all([oneWorker(),oneWorker()]);
+  await Promise.all([oneWorker(false),oneWorker(false),oneWorker(true),oneWorker(true)]);
   if(failed||fcAbort||done!==n){trace('FULL_CACHE_GIVEUP',{done,n,failed});setSeekLock(false);return;}
   const blob=buildBlob(n-1);parts.length=0;
   const local=URL.createObjectURL(blob);
@@ -997,7 +1020,8 @@ video.addEventListener('playing',()=>{if(!fcStarted&&engine==='html5'&&lastSourc
  * When the player cannot reconnect (two reloads did not help), the address is refused on resume, or the browser reports a source error, the page is asked for a new
  * address of the same video (the same scan as the right-click refresh); the answer replaces the address at the same position. Once per 45 s. */
 let fcLiveUrl=null,fcTotal=0,freshAt=0,pausedAt=0;
-function needFresh(why){const now=Date.now();if(now-freshAt<45000)return;freshAt=now;trace('NEED_FRESH_SOURCE',{why});send('need-fresh-source',{why});try{status('BUFFERING','Buffering… getting a fresh link');}catch(_){}}
+let manifestRetries=0;
+function needFresh(why,quick){const now=Date.now();if(quick){if(manifestRetries>=3||now-freshAt<6000)return;manifestRetries++;}else if(now-freshAt<45000)return;freshAt=now;trace('NEED_FRESH_SOURCE',{why,quick:!!quick,retry:manifestRetries});send('need-fresh-source',{why});try{status('BUFFERING','Buffering… getting a fresh link');}catch(_){}}
 function replaceSource(u){
  try{const x=new URL(u);if(x.protocol!=='https:')return;trace('REPLACE_SOURCE',{host:x.hostname});lastSource.url=x.href;fcLiveUrl=x.href;fcLiveEpoch++;
   const pos0=Math.max(video.currentTime||0,lastGoodT);
@@ -1094,5 +1118,290 @@ send('ready');
  video.addEventListener('play',reveal);video.addEventListener('pause',reveal);video.addEventListener('waiting',reveal);
  reveal();
 })();
+/* 3.0.1 RESOLUTION CHOICE (KVS players: rule34video and the sites built on the same engine). The page lists every resolution in its player settings
+ * (video_url / video_alt_url / video_alt_url2 with the labels 360p / 480p / 720p). The background fetches the page when the player opens (so the addresses are fresh:
+ * they carry short-lived tokens) and returns the list; a selector appears in the control bar when there are two or more. Choosing one reopens the video at the same
+ * position. A switched source streams from the server (no full local copy, so no seek lock). Generic by player engine, not by site name. */
+let hibPageDest='',hibPlayerTitle='';   // hibPlayerTitle: the title shown in the player's own title bar ("site • episode · 1080p · Sub"); the saved files are named after it
+function hibPathKey(u){try{const x=new URL(u);return x.origin+x.pathname.replace(/[/]+$/,'');}catch(_){return String(u);}}
+async function hibLoadVariants(){
+ try{
+  if(!hibPageDest||!lastSource||!lastSource.url||engine!=='html5')return;
+  const r=await browser.runtime.sendMessage({type:'hib-kvs-variants',page:hibPageDest});
+  const list=(r&&r.ok&&Array.isArray(r.variants))?r.variants:[];
+  trace('VARIANTS',{count:list.length,labels:list.map(v=>v.label)});
+  hibOfferToUmd(list);
+  if(list.length<2||$('hibRes'))return;
+  const sel=document.createElement('select');sel.id='hibRes';sel.title='Resolution';sel.setAttribute('aria-label','Resolution');
+  sel.style.cssText='background:#202026;color:#fff;border:1px solid #555;border-radius:4px;font:12px system-ui,sans-serif;padding:2px 3px;max-width:78px;';
+  const curKey=hibPathKey(lastSource.url);let matched=false;
+  for(const v of list){const o=document.createElement('option');o.value=v.url;o.textContent=v.label||(v.res?v.res+'p':'?');if(hibPathKey(v.url)===curKey){o.selected=true;matched=true;}sel.appendChild(o);}
+  if(!matched){const o=document.createElement('option');o.value='';o.textContent='current';o.selected=true;sel.insertBefore(o,sel.firstChild);}
+  sel.addEventListener('change',()=>{const u=sel.value;if(u)hibSwitchSource(u,sel.options[sel.selectedIndex].textContent);try{sel.blur();window.focus();}catch(_){}});
+  sel.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Spacebar'].includes(e.key)){e.preventDefault();e.stopPropagation();playbackKey(e.key);}});   // mouse only: the arrow keys keep meaning volume / jump, they never change the resolution
+  const ctl=$('controls'),before=$('captionSmaller');ctl.insertBefore(sel,before||$('fullscreen'));
+ }catch(e){trace('VARIANTS_FAILED',{error:String(e)});}
+}
+/* 3.0.1 QUALITY CHOICE FOR HLS STREAMS (the stream's own qualities, e.g. 360p / 720p / 1080p): a selector in the control bar, filled from the player's quality list as soon as
+ * it is known. Auto = the player decides; a height = that quality at once. Mouse only (the arrow keys keep meaning volume / jump). Generic by player engine, not by site. */
+function hibLoadLevels(){
+ let tries=0;
+ const tm=setInterval(()=>{
+  try{
+   if(++tries>40||engine!=='hls'&&tries>5){clearInterval(tm);return;}
+   if(engine!=='hls'||!hls||!hls.levels||hls.levels.length<2||$('hibLevel')||$('hibRes'))return;
+   clearInterval(tm);
+   const sel=document.createElement('select');sel.id='hibLevel';sel.title='Quality';sel.setAttribute('aria-label','Quality');
+   sel.style.cssText='background:#202026;color:#fff;border:1px solid #555;border-radius:4px;font:12px system-ui,sans-serif;padding:2px 3px;max-width:78px;';
+   const heights=[];
+   hls.levels.forEach((l,i)=>{if(l&&l.height)heights.push({i,h:Number(l.height),b:Number(l.bitrate||0)});});
+   heights.sort((x,y)=>y.h-x.h||y.b-x.b);
+   const auto=document.createElement('option');auto.value='-1';auto.textContent='Auto';sel.appendChild(auto);
+   const seen=new Set();
+   for(const x of heights){if(seen.has(x.h))continue;seen.add(x.h);const o=document.createElement('option');o.value=String(x.i);o.textContent=x.h+'p';sel.appendChild(o);}
+   if(sel.options.length<3)return;
+   sel.value='-1';
+   if(heights.length){try{hls.currentLevel=heights[0].i;sel.value=String(heights[0].i);trace('LEVEL_DEFAULT_BEST',{height:heights[0].h});}catch(_){}}   // starts at the best quality (Auto would begin at the lowest and look blocky); Auto stays one click away
+   sel.addEventListener('change',()=>{try{hls.currentLevel=Number(sel.value);trace('LEVEL_CHOSEN',{value:sel.value,text:sel.options[sel.selectedIndex].textContent});sel.blur();window.focus();}catch(e){trace('LEVEL_FAILED',{error:String(e)});}});
+   sel.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' ','Spacebar'].includes(e.key)){e.preventDefault();e.stopPropagation();playbackKey(e.key);}});
+   const ctl=$('controls'),before=$('captionSmaller');ctl.insertBefore(sel,before||$('fullscreen'));
+   trace('LEVELS',{count:hls.levels.length,heights:heights.map(x=>x.h)});
+  }catch(e){trace('LEVELS_FAILED',{error:String(e)});}
+ },1000);
+}
+/* 3.0.1 SUBTITLE RETRY: the subtitle lookup that runs when a card is opened can come back empty (it looked next to a streaming mirror that answers with a web page, or it simply
+ * ran out of time) while the video itself plays fine; the CC button then stayed greyed out until the player was reopened. If there is still no subtitle track a few seconds after
+ * the player opened, the lookup is asked again for the address that is really playing (up to 3 times, 9 s apart). */
+function hibSubRetry(){
+ let n=0;
+ const tm=setInterval(async()=>{
+  try{
+   if(++n>3){clearInterval(tm);return;}
+   if(subTracks.length||(window.hibAssSubtitles&&window.hibAssSubtitles.has())){clearInterval(tm);return;}
+   if(!lastSource||!lastSource.url)return;
+   const r=await browser.runtime.sendMessage({type:'hib-rc332-get-subs',url:lastSource.url,page:hibPageDest||''});
+   const tracks=(r&&Array.isArray(r.tracks))?r.tracks:[];
+   if(tracks.length){try{window.hibAssSubtitles&&window.hibAssSubtitles.setPageFonts(r.fonts||[]);}catch(_){}registerSubTracks(tracks);trace('SUBTITLES_RETRY_FOUND',{n,count:tracks.length});clearInterval(tm);}
+   else trace('SUBTITLES_RETRY_NONE',{n});
+  }catch(e){trace('SUBTITLES_RETRY_FAILED',{error:String(e)});}
+ },9000);
+}
+function hibSwitchSource(u,label){
+ try{
+  const t=video.currentTime||0,wasPaused=video.paused;
+  trace('SWITCH_SOURCE',{label,t:Math.round(t)});
+  try{browser.runtime.sendMessage({type:'hib-rc297-media-hint',url:u,referrer:hibPageDest||u});}catch(_){}
+  try{setSeekLock(false);}catch(_){}
+  stop();
+  fcStarted=true;                        // a switched source streams from the server: no full local copy (and so no seek lock)
+  resumeUrl=u;resumeDone=true;
+  video.addEventListener('loadedmetadata',()=>{try{video.currentTime=t;}catch(_){}if(!wasPaused)void playSafely();message.textContent='';},{once:true});
+  message.textContent='Switching to '+label+'...';
+  start(u,'html5');
+  setTimeout(()=>hibOfferToUmd([]),500);
+ }catch(e){trace('SWITCH_FAILED',{error:String(e)});}
+}
+/* 3.0.1 UNIVERSAL MEDIA DOWNLOADER HAND-OVER. Firefox hides this player's own requests from other add-ons, so the downloader cannot see the file the HIB player plays. The
+ * player therefore offers the address (and the other resolutions of the page) to the background page, which passes it on to the downloader add-on when it is installed
+ * (otherwise nothing happens). Only the address, a label, the title and the page address are sent. */
+function hibOfferToUmd(variants){
+ try{
+  if(!lastSource||!lastSource.url)return;
+  const items=[],seen=new Set();
+  const add=(url,label)=>{try{const u=new URL(url);if(u.protocol!=='https:'||seen.has(u.href))return;seen.add(u.href);items.push({url:u.href,label:String(label||''),kind:engine==='hls'&&u.href===lastSource.url?'hls':(/[.]m3u8(?:$|[?#\/])/i.test(u.pathname)?'hls':(/[.]mpd(?:$|[?#\/])/i.test(u.pathname)?'dash':'video'))});}catch(_){}};
+  add(lastSource.url,'');
+  for(const v of (variants||[]))add(v.url,v.label);
+  browser.runtime.sendMessage({type:'hib-umd-offer',items,title:String(hibPlayerTitle||'').replace(/^[^\u2022]*\u2022\s*/,''),referrer:hibPageDest||''}).catch(()=>{});
+ }catch(_){}
+}
+window.addEventListener('message',e=>{const d=e.data;if(e.source!==parent||!d||d.bridge!==BRIDGE||d.type!=='open')return;if(d.title)hibPlayerTitle=String(d.title);if(!d.destination)return;hibPageDest=String(d.destination);setTimeout(()=>{hibOfferToUmd([]);hibLoadVariants();hibLoadLevels();hibSubRetry();},1500);});
+/* 3.0.1: the optional Download button (3.1 feature, hib_download.js) is placed INSIDE the player scope: it needs lastSource / engine / status of the player. */
+/* 3.1  OPTIONAL DOWNLOAD BUTTON (off by default; Tools > Beta features > "Download button in the player").
+ * Saves what the player is playing WITHOUT joining the parts: the video, a separate sound stream when the stream has one, and every subtitle
+ * track each become their own file with the same base name. Nothing is converted and no other program is used.
+ *   - direct video (MP4/WEBM): the file as it is
+ *   - HLS: the segments of the chosen quality are fetched in order (AES-128 decrypted) and written into one .ts (or .mp4 when the stream uses
+ *          fMP4 segments) file; a separate sound playlist becomes a second file
+ *   - DASH: not supported yet (the button says so)
+ * The player page does the fetching, so the same Referer handling as playback applies. */
+(()=>{
+ const KEY='hibDownloadEnabled';
+ const btn=document.createElement('button');
+ btn.id='hibDownload';btn.type='button';btn.hidden=true;btn.textContent='⭳';
+ btn.title='Download video and subtitles (separate files)';btn.setAttribute('aria-label','Download video and subtitles');
+ const anchor=document.getElementById('captions');
+ if(!anchor||!anchor.parentNode)return;
+ anchor.parentNode.insertBefore(btn,anchor);
+ let busy=false;
+ const say=(t)=>{try{status('DOWNLOAD',t);}catch(_){}};
+ const show=async()=>{try{const d=await browser.storage.local.get(KEY);btn.hidden=d[KEY]!==true;}catch(_){btn.hidden=true;}};
+ void show();
+ try{browser.storage.onChanged.addListener((c,a)=>{if(a==='local'&&c[KEY])void show();});}catch(_){}
+
+ const clean=s=>String(s||'').replace(/[\\/:*?"<>|\u0000-\u001f]+/g,' ').replace(/\s+/g,' ').trim().slice(0,120);
+ const absolute=(u,base)=>{try{return new URL(u,base).href;}catch(_){return null;}};
+ /* 3.0.1: a title that is only "Episode 4" gets the series name from the page address (/watch/kanojo-no-tomodachi/ -> "Kanojo No Tomodachi - Episode 4"); every saved file (video, sound, each subtitle language) is named from it. */
+ function withSeries(title,pageUrl){
+  const t=String(title||'').trim();
+  if(!/^(?:episode|ep[.]?)\s*[0-9]+(?:[.][0-9]+)?$/i.test(t))return t;
+  try{
+   const parts=new URL(pageUrl).pathname.split('/').filter(Boolean).map(x=>decodeURIComponent(x));
+   const ignore=/^(?:watch|video|videos|episode|episodes|ep|series|anime|hentai|play|stream|player|[0-9]+)$/i;
+   const slug=[...parts].reverse().find(x=>!ignore.test(x)&&!/^(?:episode|ep)[-_ ]?[0-9]+$/i.test(x)&&/[a-z]/i.test(x));
+   if(!slug)return t;
+   return slug.replace(/[-_+]+/g,' ').replace(/\s+/g,' ').trim().replace(/\b([a-z])/g,c=>c.toUpperCase())+' - '+t;
+  }catch(_){return t;}
+ }
+ async function pageTitle(){const own=clean(withSeries(String(hibPlayerTitle||'').replace(/^[^•]*•\s*/,''),hibPageDest));if(own)return own;try{const r=await browser.runtime.sendMessage({type:'hib-dl-title'});return clean(withSeries(r&&r.title,hibPageDest));}catch(_){return '';}}   /* 3.0.1: the player's own title first (the page's tab title is often just the site name) */
+ function fileBase(url){try{const n=decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop()||'');return clean(n.replace(/\.[a-z0-9]{2,5}$/i,''));}catch(_){return '';}}
+
+ async function save(blob,name){
+  const u=URL.createObjectURL(blob);
+  try{
+   /* 3.0.1: this page is an extension frame inside the web page, where browser.downloads does not exist ("browser.downloads is undefined"): the background page saves it. */
+   const r=await browser.runtime.sendMessage({type:'hib-dl-save',url:u,filename:name});
+   if(!r||!r.ok)throw Error((r&&r.error)||'the background page could not save the file');
+  }finally{setTimeout(()=>URL.revokeObjectURL(u),30000);}
+ }
+ async function get(url,type){
+  const r=await fetch(url,{credentials:'include'});
+  if(!r.ok)throw Error('HTTP '+r.status+' for '+new URL(url).hostname);
+  return type==='text'?r.text():type==='blob'?r.blob():r.arrayBuffer();
+ }
+
+ /* ---- HLS ---- */
+ function attr(line,name){const m=new RegExp('(?:^|[:,])'+name+'=("([^"]*)"|[^,]*)','i').exec(line);return m?(m[2]!==undefined?m[2]:m[1]):null;}
+ async function resolvePlaylist(url){
+  let text=await get(url,'text'),base=url;
+  if(/#EXT-X-STREAM-INF/i.test(text)){
+   const lines=text.split(/\r?\n/);let best=null;
+   for(let i=0;i<lines.length;i++){
+    if(!/^#EXT-X-STREAM-INF/i.test(lines[i]))continue;
+    const bw=Number(attr(lines[i],'BANDWIDTH'))||0,next=lines.slice(i+1).find(l=>l&&!l.startsWith('#'));
+    if(next&&(!best||bw>best.bw))best={bw,url:absolute(next,url)};
+   }
+   if(!best)throw Error('No video playlist found in the stream');
+   base=best.url;text=await get(base,'text');
+  }
+  return {text,base};
+ }
+ function hlsLevelUrl(){
+  try{
+   if(typeof hls==='undefined'||!hls||!hls.levels||!hls.levels.length)return null;
+   const i=hls.currentLevel>=0?hls.currentLevel:(hls.loadLevel>=0?hls.loadLevel:hls.levels.length-1);
+   const l=hls.levels[i];const u=Array.isArray(l.url)?l.url[0]:(l.uri||l.url);
+   return u?absolute(u,lastSource.url):null;
+  }catch(_){return null;}
+ }
+ function hlsAudioUrl(){
+  try{
+   if(typeof hls==='undefined'||!hls||!hls.audioTracks||!hls.audioTracks.length)return null;
+   const t=hls.audioTracks[hls.audioTrack>=0?hls.audioTrack:0];
+   const u=t&&(Array.isArray(t.url)?t.url[0]:t.url);
+   return u?absolute(u,lastSource.url):null;
+  }catch(_){return null;}
+ }
+ async function downloadPlaylist(playlistUrl,label,onProgress){
+  const {text,base}=await resolvePlaylist(playlistUrl);
+  const lines=text.split(/\r?\n/);
+  const jobs=[];let key=null,init=null,seq=0,mediaSeq=0,sawFmp4=false;
+  for(const line of lines){
+   if(/^#EXT-X-MEDIA-SEQUENCE/i.test(line)){mediaSeq=Number(line.split(':')[1])||0;seq=mediaSeq;}
+   else if(/^#EXT-X-KEY/i.test(line)){
+    const method=(attr(line,'METHOD')||'NONE').toUpperCase();
+    if(method==='NONE')key=null;
+    else if(method==='AES-128')key={uri:absolute(attr(line,'URI'),base),iv:attr(line,'IV')};
+    else throw Error('This stream uses '+method+' encryption, which cannot be saved');
+   }
+   else if(/^#EXT-X-MAP/i.test(line)){init={uri:absolute(attr(line,'URI'),base),key};sawFmp4=true;}
+   else if(line&&!line.startsWith('#')){jobs.push({url:absolute(line.trim(),base),key,seq:seq++});}
+  }
+  if(!jobs.length)throw Error('The playlist has no segments');
+  const keys=new Map();
+  const keyFor=async k=>{if(!keys.has(k.uri))keys.set(k.uri,crypto.subtle.importKey('raw',await get(k.uri),{name:'AES-CBC'},false,['decrypt']));return keys.get(k.uri);};
+  const ivFor=(k,n)=>{
+   const iv=new Uint8Array(16);
+   if(k.iv){const h=k.iv.replace(/^0x/i,'').padStart(32,'0');for(let i=0;i<16;i++)iv[i]=parseInt(h.substr(i*2,2),16);}
+   else{let v=n;for(let i=15;i>=8&&v>0;i--){iv[i]=v%256;v=Math.floor(v/256);}}
+   return iv;
+  };
+  const fetchSeg=async j=>{
+   let buf=await get(j.url);
+   if(j.key)buf=await crypto.subtle.decrypt({name:'AES-CBC',iv:ivFor(j.key,j.seq)},await keyFor(j.key),buf);
+   return buf;
+  };
+  const parts=new Array(jobs.length+(init?1:0));
+  let at=0;
+  const all=init?[{init:true,url:init.uri,key:null,seq:0},...jobs]:jobs;
+  let done=0;
+  async function worker(){
+   while(at<all.length){
+    const i=at++,j=all[i];
+    parts[i]=await fetchSeg(j);
+    done++;onProgress(label+' '+Math.round(done/all.length*100)+'%  ('+done+'/'+all.length+')');
+   }
+  }
+  await Promise.all([worker(),worker(),worker(),worker()]);
+  return {blob:new Blob(parts),fmp4:sawFmp4};
+ }
+
+ async function run(){
+  if(busy)return;busy=true;btn.disabled=true;
+  try{
+   const src=lastSource&&lastSource.url;
+   if(!src)throw Error('Nothing is playing yet');
+   if(engine==='dash')throw Error('Download is not available for DASH streams yet');
+   const base=(await pageTitle())||fileBase(src)||'video';
+   const saved=[],notes=[];notes.push('engine '+engine);
+   if(engine==='hls'){
+    const vurl=hlsLevelUrl()||src;
+    const v=await downloadPlaylist(vurl,'Video',say);
+    const vname=base+(v.fmp4?'.mp4':'.ts');
+    await save(v.blob,vname);saved.push(vname);
+    const aurl=hlsAudioUrl();
+    if(!aurl)notes.push('no separate sound stream in this video');else if(aurl===vurl)notes.push('the sound is in the video stream');
+    if(aurl&&aurl!==vurl){
+     const a=await downloadPlaylist(aurl,'Sound',say);
+     const aname=base+'.audio'+(a.fmp4?'.m4a':'.aac');
+     await save(a.blob,aname);saved.push(aname);
+    }
+   }else{
+    say('Video: downloading…');
+    const blob=await get(src,'blob');
+    const ct=(blob.type||'').toLowerCase();
+    const ext=/webm/.test(ct)?'.webm':/matroska/.test(ct)?'.mkv':(/\.(mp4|webm|mkv|m4v|mov)(?:$|[?#])/i.exec(src)||[])[1]?'.'+(/\.(mp4|webm|mkv|m4v|mov)(?:$|[?#])/i.exec(src))[1].toLowerCase():'.mp4';
+    const vname=base+ext;await save(blob,vname);saved.push(vname);
+   }
+   const subs=[];
+   /* 3.0.1: ONLY the subtitle language being watched (the track chosen in the player's subtitle list; when none is shown, the player's default language), not every track the stream offers. */
+   try{
+    const cur=subTracks.find(t=>t.id===subCurrent)||(subCurrent==='off'?subTracks.find(t=>t.id===chooseDefaultSubTrack()):null);
+    if(cur)subs.push(cur);
+    notes.push(cur?'subtitle: '+(cur.lang||cur.label||cur.id):'no subtitle selected (tracks offered: '+subTracks.length+', current: '+subCurrent+')');
+   }catch(e){notes.push('subtitle check failed: '+String(e&&e.message||e));}
+   const extra=(window.hibDlExtra||[]).slice();
+   const used=new Set();
+   for(const t of subs){
+    try{
+     const isAss=t.kind==='ass'||/\.ass(?:$|[?#])/i.test(t.url||'');
+     const isSrt=/\.srt(?:$|[?#])/i.test(t.url||'');
+     const ext=isAss?'.ass':isSrt?'.srt':'.vtt';
+     let text=typeof t.text==='string'?t.text:await get(t.url,'text');
+     const tag=clean(t.lang||t.label||'subtitles').replace(/\s/g,'_');
+     let n=base+'.'+tag+ext,k=2;while(used.has(n))n=base+'.'+tag+'.'+(k++)+ext;used.add(n);
+     await save(new Blob([text],{type:'text/plain'}),n);saved.push(n);
+    }catch(e){saved.push('(subtitle skipped: '+String(e&&e.message||e)+')');}
+   }
+   for(const t of extra){
+    try{let n=base+'.'+(t.name||'subtitles')+'.'+t.ext,k=2;while(used.has(n))n=base+'.'+(t.name||'subtitles')+'.'+(k++)+'.'+t.ext;used.add(n);
+     await save(new Blob([t.text],{type:'text/plain'}),n);saved.push(n);}catch(_){}
+   }
+   say('Saved '+saved.length+' file'+(saved.length===1?'':'s')+' to your Downloads folder: '+saved.join(', ')+'  ['+notes.join('; ')+']');
+  }catch(e){say('Download failed: '+String(e&&e.message||e));}
+  finally{busy=false;btn.disabled=false;}
+ }
+ btn.addEventListener('click',run);
+})();
+
 })();
 /* ===== END VIDEO SECTION - HIB PLAYER (hib101_player.js) - VIDEO FINAL (RC507) ===== */

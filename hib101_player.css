@@ -28,3 +28,5 @@ video::cue{font-size:170%;font-family:Arial,sans-serif;color:rgba(255,255,255,.9
 .hib-ass-cue{position:absolute;white-space:pre-line;text-align:center;max-width:94%;font-weight:700;font-size:clamp(16px,2.8vw,38px);line-height:1.2;overflow-wrap:anywhere;}
 #seek::-moz-range-track{height:6px;border-radius:3px;background:var(--buf,#3a3d46)}#seek::-moz-range-progress{height:6px;border-radius:3px;background:#8ab4f8}
 #bufferedRange .bseg{min-width:4px;}#bufferedRange .bseg.fc{background:#58a583;}
+/* 3.0.1: the volume percentage sits right next to the volume bar (value AFTER the slider, left-aligned: it used to float 50 px away, right-aligned in a wide box) */
+#volumeLabel{text-align:left;min-width:30px;margin-left:-3px}

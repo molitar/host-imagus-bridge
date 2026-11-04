@@ -99,7 +99,7 @@
     // RC444: the subtitle lookup (hover scan) can finish AFTER the player was opened. The hover code announces that with this event; the tracks are then sent to the
     // player (it ignores tracks it already has), so subtitles that arrive late are no longer lost (hstream.moe: .ass found a few seconds after the player opened).
     window.addEventListener('hib-animeid-subtitles-ready',()=>{if(!disposed&&sourceSent)void attachSubtitles();});
-    const tryHandoff=()=>{if(disposed||sourceSent||!readySeen||!active?.audio)return;sourceSent=true;send({type:'open',url:media.href,engine,site:spec?.site||location.hostname,title:heading.textContent,audio:active.audio});
+    const tryHandoff=()=>{if(disposed||sourceSent||!readySeen||!active?.audio)return;sourceSent=true;send({type:'open',url:media.href,engine,site:spec?.site||location.hostname,title:heading.textContent,audio:active.audio,destination:spec?.destination||location.href});
       try{frame.focus();frame.contentWindow&&frame.contentWindow.focus();}catch(_){}   // RC507: the keyboard belongs to the player as soon as it opens (a site's own Left/Right page keys must not get the arrows)attachSubtitles();
       if(!(spec?.subtitles?.tracks?.length)&&spec?.subtitles?.format==='ass'&&spec?.subtitles?.url){send({type:'ass-subtitle-url',url:spec.subtitles.url});}   // RC441: a track list replaces the single legacy subtitle
     };

@@ -396,13 +396,15 @@
   let alive=true;
   const subs={};
   const subsTask=Promise.race([browser.runtime.sendMessage({type:'hib-rc332-get-subs',url:media.source,page:media.destination}),new Promise(r=>setTimeout(()=>r(null),25000))]).then(r=>{if(r&&r.ok&&(r.text||r.url||(r.tracks&&r.tracks.length))){Object.assign(subs,{text:r.text,label:r.label,format:r.format,url:r.url,tracks:r.tracks||[],fonts:r.fonts||[]});window.dispatchEvent(new CustomEvent('hib-animeid-subtitles-ready',{detail:{media:new URL(media.source).href}}));}}).catch(()=>{});
+  let deadWhy='';
   if(media.stale)alive=false;   // RC465: its address has run out (short-lived signature): go straight to the fresh scan below
-  else try{const r=await browser.runtime.sendMessage({type:'hib-rc326-verify-url',url:media.source,referrer:media.referrer||media.destination});alive=!(r&&r.alive===false);}catch(_){alive=true;}
+  else try{const r=await browser.runtime.sendMessage({type:'hib-rc326-verify-url',url:media.source,referrer:media.referrer||media.destination});alive=!(r&&r.alive===false);deadWhy=(r&&r.reason)||'';}catch(_){alive=true;}
   void subsTask;
   hibOpenTrace('OPEN_VERIFIED',{alive});
   hibOpening=false;
   if(!card?.element?.isConnected){spinnerLock=false;clearSpinner(true);return;}
   if(alive){
+   if(window.__hibRescans)window.__hibRescans.delete(media.cacheKey);
    openPlayer({url:media.source,format,referrer:media.referrer||media.destination,cacheKey:media.cacheKey,destination:media.destination,card,subtitles:subs});
    const stop=()=>{window.removeEventListener('message',on,true);clearTimeout(timer);spinnerLock=false;clearSpinner(true);};
    const on=e=>{const d=e.data;if(d&&d.bridge==='hib-unified-v101'&&((d.type==='status'&&d.code==='PLAYBACK_CONFIRMED')||d.type==='error'))stop();};
@@ -412,7 +414,10 @@
   }
   hibOpenTrace('OPEN_DEAD_RESCAN',{});
   console.info('[HIB RC346]',{status:'CACHED_URL_DEAD_RESCAN',url:media.source});
-  hibKnownSource.set(media.cacheKey,media.source);   // RC467: the refresh scan may accept the same file with a new signature at once
+  /* 3.0.1: an address whose manifest is a web page (one broken mirror host of a streaming site) must NOT be remembered as the known file: the rescan would accept the same bad host again. At most 3 rescans per card. */
+  const hibRescans=(window.__hibRescans=window.__hibRescans||new Map());const hibRescanN=(hibRescans.get(media.cacheKey)||0)+1;hibRescans.set(media.cacheKey,hibRescanN);
+  if(hibRescanN>3){hibRescans.delete(media.cacheKey);openPlayer({url:media.source,format,referrer:media.referrer||media.destination,cacheKey:media.cacheKey,destination:media.destination,card,subtitles:subs});spinnerLock=false;clearSpinner(true);return;}   // enough rescans: open it and let the player's own retry take over
+  if(deadWhy!=='not-a-manifest')hibKnownSource.set(media.cacheKey,media.source);   // RC467: the refresh scan may accept the same file with a new signature at once
   rc291Drop(media.cacheKey);verifiedCards.delete(card.element);ready=null;
   /* RC469: the spinner keeps turning from the right-click until the refreshed video is open (the scan below replaces it, it is never removed in between) */
   hibAutoOpenEl=card.element;hibAutoOpenAt=Date.now();
@@ -714,7 +719,7 @@
   try{browser.runtime.sendMessage({type:'hib-rc297-media-hint',url:url.href,referrer:spec.referrer||location.href});}catch(_){}
   // The unified HIB player is the only player UI. If it cannot open (already open, bad address) nothing else is shown in its place.
   if(!window.__hibUnifiedPlayerOpen){console.warn('[HIB RC346]',{status:'UNIFIED_PLAYER_MISSING'});return;}
-  const ok=window.__hibUnifiedPlayerOpen({url:url.href,format:spec.format,title:(spec.card&&spec.card.title)||document.title,site:location.hostname,observedSource:true,subtitles:spec.subtitles||undefined});
+  const ok=window.__hibUnifiedPlayerOpen({url:url.href,format:spec.format,title:(spec.card&&spec.card.title)||document.title,site:location.hostname,observedSource:true,subtitles:spec.subtitles||undefined,destination:spec.destination||undefined});
   hibOpenTrace('OPEN_PLAYER',{ok:!!ok});
   console.info('[HIB RC346]',{status:ok?'UNIFIED_PLAYER_OPENED':'UNIFIED_PLAYER_REJECTED',url:url.href.slice(0,120)});
  }

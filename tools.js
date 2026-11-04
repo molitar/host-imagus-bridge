@@ -10,13 +10,15 @@
  /* Developer section (hidden): 5 clicks on the "Tools" title within 2.5 s show / hide it. It holds Diagnostics mode (hibDiagMode, OFF by default) and the way to the Diagnostics tools. */
  const devStore=await browser.storage.local.get(['hibDevUnlocked','hibDiagMode']);
  $('devSection').hidden=devStore.hibDevUnlocked!==true;
+ /* 3.0.1: Diagnostics mode only exists while the Developer section is shown. Hidden = off (also repairs a value left on by an earlier hide). */
+ if(devStore.hibDevUnlocked!==true&&devStore.hibDiagMode===true){devStore.hibDiagMode=false;await browser.storage.local.set({hibDiagMode:false});}
  $('devDiag').checked=devStore.hibDiagMode===true;
  $('devDiag').onchange=async()=>{await browser.storage.local.set({hibDiagMode:$('devDiag').checked});say('Diagnostics mode '+($('devDiag').checked?'on':'off')+'. Reload open pages to apply.');};
  $('devOpen').onclick=()=>{location.href='diagnostics.html'+keep;};
  /* Two ways to show / hide the Developer section: click the "Tools" title 5 times within 2.5 s, or press Alt+Shift+D while this page is open. */
  const toggleDev=async()=>{
   const show=$('devSection').hidden;
-  await browser.storage.local.set({hibDevUnlocked:show});$('devSection').hidden=!show;
+  await browser.storage.local.set({hibDevUnlocked:show});$('devSection').hidden=!show;if(!show){await browser.storage.local.set({hibDiagMode:false});$('devDiag').checked=false;}
   say(show?'Developer section shown.':'Developer section hidden.');
  };
  {let taps=0,tapTimer=null;
@@ -219,6 +221,9 @@
  /* Beta features: stream capture switch (moved here from the Diagnostics page). Same storage key as before. */
  const betaV=await browser.storage.local.get('hibRC360CaptureEnabled');
  $('rc360toggle').checked=betaV.hibRC360CaptureEnabled===true;
+ const dlV=await browser.storage.local.get('hibDownloadEnabled');
+ $('dlToggle').checked=dlV.hibDownloadEnabled===true;
+ $('dlToggle').onchange=async()=>{await browser.storage.local.set({hibDownloadEnabled:$('dlToggle').checked});say('Player download button '+($('dlToggle').checked?'on':'off')+'.');};
  $('rc360toggle').onchange=async()=>{
   await browser.storage.local.set({hibRC360CaptureEnabled:$('rc360toggle').checked});
   say('Stream capture '+($('rc360toggle').checked?'on':'off')+'. Reload the video page to apply.');

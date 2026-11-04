@@ -438,7 +438,10 @@ let pickPreviewOk=false,pickSavedReadOnly=false;
  function ensureOverlay(){if(!overlayLayer.isConnected&&document.documentElement)document.documentElement.appendChild(overlayLayer);}
  /* RC476: the cyan card outline / yellow thumbnail outline are working aids: shown while picking / inspecting cards, or when the user has switched Diagnostics mode ON (stored true). Plain browsing stays clean. */
  let hibOutlinesOn=false;
- try{browser.storage.local.get('hibDiagMode').then(v=>{hibOutlinesOn=v&&v.hibDiagMode===true;}).catch(()=>{});browser.storage.onChanged.addListener((ch,area)=>{if(area==='local'&&ch.hibDiagMode){hibOutlinesOn=ch.hibDiagMode.newValue===true;paintOutline();}});}catch(_){}
+ try{browser.storage.local.get('hibDiagMode').then(v=>{hibOutlinesOn=v&&v.hibDiagMode===true;}).catch(()=>{});browser.storage.onChanged.addListener((ch,area)=>{if(area==='local'&&ch.hibDiagMode){hibOutlinesOn=ch.hibDiagMode.newValue===true;if(!hibOutlinesOn)inspectMode=false;paintOutline();}});}catch(_){}
+ /* 3.0.1: Diagnostics mode switched OFF must bring the plain 1 px outline back at once: the inspect aid is switched off with it, and the stored value is read again whenever the page
+  * regains focus (a change made in another tab / the Tools page is then never missed). */
+ try{window.addEventListener('focus',()=>{browser.storage.local.get('hibDiagMode').then(v=>{const on=!!(v&&v.hibDiagMode===true);if(on!==hibOutlinesOn){hibOutlinesOn=on;if(!on)inspectMode=false;paintOutline();}}).catch(()=>{});});}catch(_){}
  function paintOutline(){ensureOverlay();
  /* RC499: the card the pointer is on always gets a dashed cyan outline, so a card can be recognised before anything is marked on it. While picking / inspecting cards or with
   * Diagnostics mode on it is the full 4 px outline (plus the yellow thumbnail outline); otherwise it is a light 1 px dash that stays out of the way. */

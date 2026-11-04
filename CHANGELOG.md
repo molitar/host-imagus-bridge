@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.0.1 — several bug fixes (upgrades 3.0.0; same add-on ID, same name)
+
+### Fixed
+* **Lowest quality on sites that offer several resolutions.** Players built on the KVS engine (for example rule34video) list every resolution in the page's player settings but only load the one they start with, so HIB played the lowest (360p). HIB now reads that list, finds the other resolutions and plays the best one.
+* **Resolution choice in the player.** On those sites a *Resolution* selector (360p / 480p / 720p / 1080p) appears in the control bar; choosing one reopens the video at the same position. For HLS streams that carry several qualities a *Quality* selector (Auto / 1080p / 720p / 360p) appears as well, and the stream now **starts at its best quality** (Auto begins at the lowest and looked blocky). Both selectors are mouse-only: the arrow keys never change the quality, they keep meaning volume (↑ / ↓) and jump (← / →).
+* **Seek lock overran.** While HIB makes a full copy of a single-file video the time line is locked for at most 45 seconds. It could stay locked about 50 seconds; it now ends at 45 seconds, **or as soon as 45 seconds are already buffered ahead of the play position**, and is checked twice a second.
+* **A video would not open when a streaming site hands out a broken mirror.** Some sites (for example hstream.moe) serve a video from several mirror hosts and pick one at random; one mirror can answer with a web page instead of the video manifest. HIB now recognises that (the address check requires a real manifest), drops the bad address instead of remembering it, scans again (the site picks another mirror) and, if the player itself cannot read the manifest, asks for a fresh link up to three times.
+* **Styled (ASS) subtitles were too big and A− / A+ did nothing for them.** A− / A+ now resize styled subtitles as well (15 % per click, saved), and they start at 70 % of the authored size.
+* **Subtitles missing until the player was reopened.** If no subtitle track has appeared a few seconds after the player opens, HIB looks again (up to three times) for the address that is really playing, so the CC button no longer stays greyed out.
+* **Slow servers.** Some sites (for example rule34video) send each connection slower than the video plays. HIB now measures the speed and, when the stream cannot keep up, its local copy keeps filling while playback stalls and uses extra connections, and jumps can be served from the part already copied. Fast servers behave as before.
+* **Diagnostics mode** is switched off whenever the hidden Developer section is hidden, so the thick 4 px card outline and the automatic diagnostic window only appear while you have switched them on. In normal use the card outline is a thin 1 px dash.
+* **Volume percentage** now sits next to the volume bar instead of floating far to the right.
+* **Subtitle / audio / video file names** (see the download button below) are made from the episode title shown in the player; when that title is only "Episode 4", the series name is taken from the page address (`/watch/kanojo-no-tomodachi/` → "Kanojo No Tomodachi - Episode 4").
+
+### Also in this release
+* **Optional Download button** (Tools → *Beta features* → *Download button in the player*, **off by default**). Saves the video, **only the subtitle language you are watching**, and a separate sound file when the stream has one. Nothing is joined or converted. Saving is done by the add-on's background page (the downloads API is not available inside the player frame).
+* **Hand-over to the Universal Media Downloader add-on (optional).** HIB's player plays the video in its own frame, whose requests Firefox hides from other add-ons. If the *Universal Media Downloader* add-on (ID `umd@molitar.local`) is installed, the player tells it the address it is playing and the title; if it is not installed nothing happens and nothing is sent anywhere else.
+
+### Unchanged
+Everything else is as in 3.0.0. No new permissions.
+
 ## 3.0.0 — major release (upgrades 2.1.5; same add-on ID, same name)
 
 3.0.0 is a different class of add-on from 2.1.5. **2.1.5 opened pictures** (wrapped-image links) and left video to Imagus Reborn's player. **3.0.0 adds HIB's own video player, video scanning, styled subtitles and a full Tools page**, and keeps the picture features.

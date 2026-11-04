@@ -70,6 +70,8 @@ select{width:100%;min-width:0;border:1px solid #b8c2d0;border-radius:6px;backgro
  <div class="sectionHead"><h2>Beta features</h2></div>
  <div class="row"><label for="rc360toggle" style="flex:1">Capture streams that have no direct address</label><input type="checkbox" id="rc360toggle"></div>
  <div style="font-size:11px;color:#566275;margin:3px 0">For pages like Mega or Google Drive. Turn it on, reload the video page, start the video, then right-click the card as usual. Affects every page until turned off.</div>
+ <div class="row" style="margin-top:8px"><label for="dlToggle" style="flex:1">Download button in the player</label><input type="checkbox" id="dlToggle"></div>
+ <div style="font-size:11px;color:#566275;margin:3px 0">Adds a download button to the HIB player. Nothing is joined: the video, a separate sound stream (if the video has one) and each subtitle track are saved as separate files with the same name, to your Downloads folder. Join them yourself with a tool such as MKVToolNix. DASH streams are not supported yet.</div>
  <div class="row" style="margin-top:8px"><label for="hevcToggle" style="flex:1">HEVC video support</label><input type="checkbox" id="hevcToggle"></div>
  <div style="font-size:11px;color:#566275;margin:3px 0">For videos that use the HEVC (H.265) codec. Firefox plays them with a decoder already on your computer. Turn this on and HIB checks for one; if none is found it points you to the Microsoft Store. HIB installs nothing.</div>
  <div id="hevcStatus" hidden style="font-size:11.5px;margin:4px 0"></div>
