@@ -207,7 +207,7 @@
    const cat=hibCategoryOf(card);if(!cat)return;
    hibCategoryHits.delete(cat.container);
    for(const [k,v] of [...landingDestinations])if(v&&v.category===cat.id)landingDestinations.delete(k);
-   for(const el of [...document.querySelectorAll('[data-hib-passive]')])if(el.textContent==="'")el.remove();   // the passive pass re-draws what is still marked
+   for(const el of [...document.querySelectorAll('[data-hib-passive]')])if(el.textContent==="'"||el.textContent==='!')el.remove();   // the passive pass re-draws what is still marked
   }
   function cacheMediaForCard(card,media){
    const key=verifiedDestinationKey(card);
@@ -294,7 +294,7 @@
   // expired ones, and a player error removes the entry); an apostrophe for a down source goes after ten minutes.
   if(entry.symbol==='\u2212'){
    if(!liveVerified(verifiedDestinationKey(card))){hibTagWhy(entry,'REMOVED_NOT_VERIFIED_ANY_MORE',(()=>{try{const v=verifiedDestinations.get(verifiedDestinationKey(card));return v?{expired:hibUrlExpired(v.source,v.cachedAt),ageMin:Math.round((Date.now()-v.cachedAt)/60000),marker:!v.marker||v.marker===hibMarkRead()}:{noEntry:true};}catch(_){return {};}})());el.remove();hibTracked.delete(entry);return;}
-  }else if(entry.symbol==="'"){
+  }else if(entry.symbol==="'"||entry.symbol==='!'){
    const land=landingDestinations.get(verifiedDestinationKey(card));
    if(!land||Date.now()-land.at>=10*60*1000){el.remove();hibTracked.delete(entry);return;}
   }
@@ -360,7 +360,7 @@
     let symbol=null,label='';
     if(liveVerified(key)){symbol='−';label='Verified media - right-click to open HIB player';}
     else{const l=landingDestinations.get(key);
-     if(l&&Date.now()-l.at<10*60*1000){symbol="'";label=l.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':'Landing page - no video ready to play; image popup only';}}
+     if(l&&Date.now()-l.at<10*60*1000){symbol=hibFailMark(l.reason);label=l.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':'Landing page - no video ready to play; image popup only';}}
     if(!symbol)continue;
     const el=document.createElement('span');el.dataset.hibVideoStage='1';el.dataset.hibPassive='1';
     el.textContent=symbol;el.title=label;
@@ -428,6 +428,15 @@
 
  /* Autoplay still blocked after the permission module ran: the card keeps the apostrophe and the page shows this notice (no tab is opened here). */
  let hibNoticeEl=null;
+ /* 3.0.2: the mark of a card that has no playable video: an EXCLAMATION mark when the source is dead (dead link, site down, video format / player not supported), an APOSTROPHE only for a landing page. */
+ function hibFailMark(reason){return (reason==='source-down'||reason==='unsupported-video')?'!':"'";}
+ let hibApOkAt=0;
+ function hibAutoplayBlockedNow(){return new Promise(res=>{try{
+  const a=document.createElement('audio');a.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';a.style.display='none';(document.body||document.documentElement).appendChild(a);
+  const done=v=>{try{a.pause();}catch(_){}try{a.remove();}catch(_){}res(v);};
+  const p=a.play();if(p&&p.then)p.then(()=>done(false)).catch(e=>done(!!(e&&e.name==='NotAllowedError')));else done(false);
+  setTimeout(()=>done(false),1500);
+ }catch(_){res(false);}});}
  function hibAutoplayNotice(card){
   void card;
   if(hibNoticeEl&&hibNoticeEl.isConnected)return;
@@ -606,7 +615,7 @@
   const landed=cacheKey?landingDestinations.get(cacheKey):null;
   // A down source may come back: retry after ten minutes. A landing page stays marked for the session.
   if(landed&&Date.now()-landed.at<10*60*1000){
-   showIndicator(card,"'",landed.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':'Landing page - no video ready to play; image popup only');
+   showIndicator(card,hibFailMark(landed.reason),landed.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':'Landing page - no video ready to play; image popup only');
    /* RC449: hovering an apostrophe card again for the full hover time scans it again (a scan can fail by chance; no page refresh needed).
     * A card that is only waiting for the autoplay permission is left alone. */
    if(landed.reason!=='autoplay-blocked'){
@@ -625,11 +634,20 @@
   if(landed)landingDestinations.delete(cacheKey);
   const token=requestID;
   console.info('[HIB HOVER VIDEO]',{status:'HOVER_TIMER_STARTED',delay,cardType:card.type||'',destination:destinationOf(card)});
-  hoverTimer=setTimeout(()=>{
+  hoverTimer=setTimeout(async()=>{
    hoverTimer=null;
    if(hibViewerOpen()||token!==requestID||hovered?.element!==card.element||!card.element.isConnected)return;
    console.info('[HIB HOVER VIDEO]',{status:'STAGE1_HOVER_CONFIRMED',delay,cardType:card.type||'',title:card.title||'',destination:destinationOf(card),element:card.element});
    if(window.__hibHoverScanBusy){console.info('[HIB RC346]',{status:'HOVER_SKIPPED_SCAN_ACTIVE'});return;}
+   /* 3.0.2 AUTOPLAY CHECK FIRST: the scan runs in a hidden tab that has no user activation, so it is blocked exactly when this page has neither the site permission nor an activation.
+    * A real play() attempt here (the same silent test sound HIB already uses for the notice) tells at once, so the warning shows when the hover is confirmed instead of after the scan
+    * window has opened, probed and closed (about 5 s later). Allowed answers are remembered for 10 minutes; any other answer falls through to the normal scan. */
+   if(!(hibApOkAt&&Date.now()-hibApOkAt<600000)){
+    const blocked=await hibAutoplayBlockedNow();
+    if(hibViewerOpen()||token!==requestID||hovered?.element!==card.element||!card.element.isConnected)return;
+    if(blocked){console.info('[HIB RC346]',{status:'AUTOPLAY_BLOCKED_AT_HOVER'});try{showIndicator(card,"'",'Autoplay is blocked for this site - allow it (address bar icon), then hover the card again');}catch(_){}hibAutoplayNotice(card);return;}
+    hibApOkAt=Date.now();
+   }
    window.__hibHoverScanBusy=true;window.__hibHoverScanStart=Date.now();
    spinnerLock=false;clearSpinner(true);spinner=stage2Spinner(card);
    console.info('[HIB HOVER VIDEO]',{status:'STAGE2_EXTRACTION_STARTED',cardType:card.type||''});
@@ -656,7 +674,7 @@
      if(hibAutoOpenEl===card.element)hibAutoOpenEl=null;
      if(requestedEpisodeKey)landingDestinations.set(requestedEpisodeKey,{at:Date.now(),reason:result.reason||'landing'});
      try{hibCategoryLanding(card,result.reason||'landing',requestedEpisodeKey);}catch(_){}   // RC435
-     clearSpinner();showIndicator(card,"'",result.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':result.reason==='unsupported-video'?'This video format is not supported by this browser and no source could be read - image popup only':'Landing page - no video ready to play; image popup only');
+     clearSpinner();showIndicator(card,hibFailMark(result.reason),result.reason==='source-down'?'Source is down right now - image popup only; will be tried again later':result.reason==='unsupported-video'?'This video format is not supported by this browser and no source could be read - image popup only':'Landing page - no video ready to play; image popup only');
      if(result.reason==='autoplay-blocked')hibAutoplayNotice(card);
      console.info('[HIB RC297]',{status:'LANDING_PAGE_MARKED',reason:result.reason||'landing',destination});
      return;
@@ -676,7 +694,7 @@
     if(!source&&!result?.busy&&!result?.landing&&requestedEpisodeKey&&result&&/exhausted/i.test(String(result.error||''))&&Date.now()-(window.__hibHoverScanStart||0)>15000&&card.element.isConnected){
      landingDestinations.set(requestedEpisodeKey,{at:Date.now(),reason:'source-down'});
      try{hibCategoryLanding(card,'no-video',requestedEpisodeKey,'source-down');}catch(_){}   // RC435: two such cards in one row mark the whole row (same 10-minute "no playable video" entry)
-     showIndicator(card,"'",'No playable video found right now - image popup only; will be tried again later');
+     showIndicator(card,'!','No playable video found right now - image popup only; will be tried again later');
     }
     if(result?.busy)console.info('[HIB RC280]',{status:'DEFERRED_OTHER_DISCOVERY_ACTIVE',destination});
     clearSpinner();

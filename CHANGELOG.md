@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.2 — bug fixes (upgrades 3.0.1; same add-on ID, same name)
+
+### Fixed
+* **Autoplay warning shows at once.** When Firefox blocks autoplay for a site, the warning ("Autoplay is still blocked for this site…") now appears as soon as you hover a card (after the hover delay) instead of several seconds later, after a hidden scan window had been opened and closed. Allow audio and video for the site (address bar icon), then hover again.
+* **The exclamation mark is back for a dead source.** A card whose link is dead (404 page), whose site is down, or whose video / player type is not supported now shows the exclamation mark again. The apostrophe is only for a landing page (a page with no video of its own) and for a card waiting for the autoplay permission. (3.0.1 showed the apostrophe for dead sources too.)
+* **Pick Card borders are 4 px.** The cyan outline that follows the pointer while picking a card, and the outlines of "Preview Detected Cards", are 4 px wide again, so you can see what is highlighted.
+* **Diagnostics mode is off when its section is hidden.** Hiding the Developer section (Tools) now switches Diagnostics mode off; the card outline is the thin 1 px dash in normal use and the diagnostic window no longer appears by itself.
+* **Slow servers.** Some sites send each connection slower than the video plays. The local copy now keeps filling (with extra connections) while playback stalls, and a jump can be served from the part already copied. Fast servers behave as before.
+
+### Unchanged
+Everything else is as in 3.0.1. No new permissions.
+
 ## 3.0.1 — several bug fixes (upgrades 3.0.0; same add-on ID, same name)
 
 ### Fixed
@@ -19,7 +31,7 @@
 * **Hand-over to the Universal Media Downloader add-on (optional).** HIB's player plays the video in its own frame, whose requests Firefox hides from other add-ons. If the *Universal Media Downloader* add-on (ID `umd@molitar.local`) is installed, the player tells it the address it is playing and the title; if it is not installed nothing happens and nothing is sent anywhere else.
 
 ### Unchanged
-Everything else is as in 3.0.0. No new permissions.
+Everything else is as in 3.0.1. No new permissions.
 
 ## 3.0.0 — major release (upgrades 2.1.5; same add-on ID, same name)
 

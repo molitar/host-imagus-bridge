@@ -416,7 +416,7 @@ function scan(){const seen=new Set(),rows=[];
  overlayLayer.appendChild(outline);
   // RC186: Optional learned thumbnail highlight; automatic hover/detection otherwise unchanged.
   const thumbnailOutline=document.createElement('div');thumbnailOutline.id='hib-rc186-thumbnail-outline';
-  Object.assign(thumbnailOutline.style,{position:'absolute',display:'none',pointerEvents:'none',boxSizing:'border-box',border:'2px dashed #ffd42a',background:'transparent'});
+  Object.assign(thumbnailOutline.style,{position:'absolute',display:'none',pointerEvents:'none',boxSizing:'border-box',border:'4px dashed #ffd42a',background:'transparent'});
   overlayLayer.appendChild(thumbnailOutline);
   function paintedThumbnail(){
     if(!hovered)return null;
@@ -512,7 +512,7 @@ let pickPreviewOk=false,pickSavedReadOnly=false;
  // All rules are kept in memory until Finish & Save Site. No player modifications.
  let stagedRules=[],pickMode='idle',skippedCandidates=new WeakSet(),suggestedCandidate=null,replaceExisting=false;
  const pickOutline=document.createElement('div');pickOutline.id='hib-rc184-selection-outline';
- Object.assign(pickOutline.style,{position:'absolute',pointerEvents:'none',display:'none',border:'2px dashed #00dfff',boxSizing:'border-box'});
+ Object.assign(pickOutline.style,{position:'absolute',pointerEvents:'none',display:'none',border:'4px dashed #00dfff',boxSizing:'border-box'});
    /* ===== END 1A — PHYSICAL CARD SCANNING / DEDUPLICATION ===== */
   /* ===== START 1B — CARD PICKER / USER CARD RULES ===== */
 function pickerHidePreview(){pickPreviewOk=false;for(const item of previewElements)item.outline.remove();previewElements=[];pickMatches=[];}
@@ -625,7 +625,7 @@ function pickerHidePreview(){pickPreviewOk=false;for(const item of previewElemen
  function previewPicker(){if(!picker)return;pickerHidePreview();const rules=(pickMode==='review'||pickMode==='thumbnail')?stagedRules:pickMode==='card'?[{selector:pickCandidate,thumbnailSelector:pickThumbSelector}]:[];
   // RC235: Automatic-only preview is valid; continue to inventory overlay rendering even with no staged rules.
   let nc=0,nt=0;for(const rule of rules){if(!rule.selector||!rule.thumbnailSelector)continue;const {cards,thumbs}=pairsFor(rule);nc+=cards.length;nt+=thumbs.length;
-   for(const [items,color,width] of [[cards,'#00dfff',2],[thumbs,'#ffd42a',2]])for(const el of items.slice(0,PREVIEW_LIMIT)){
+   for(const [items,color,width] of [[cards,'#00dfff',4],[thumbs,'#ffd42a',4]])for(const el of items.slice(0,PREVIEW_LIMIT)){
     const o=document.createElement('div');o.dataset.hibRc184Preview='1';Object.assign(o.style,{position:'absolute',pointerEvents:'none',boxSizing:'border-box',border:width+'px dashed '+color});
     overlayLayer.appendChild(o);previewElements.push({el,outline:o});positionOverlay(el,o);
    }
@@ -633,9 +633,9 @@ function pickerHidePreview(){pickPreviewOk=false;for(const item of previewElemen
   if(pickMode==='review'||pickMode==='thumbnail'){
    for(const row of inventory.filter(r=>!r.manual).slice(0,PREVIEW_LIMIT)){
     if(!row.el?.isConnected||pickerMultiCard(row.el))continue;
-    const o=document.createElement('div');o.dataset.hibRc184Preview='1';Object.assign(o.style,{position:'absolute',pointerEvents:'none',boxSizing:'border-box',border:'2px dashed #00dfff'});
+    const o=document.createElement('div');o.dataset.hibRc184Preview='1';Object.assign(o.style,{position:'absolute',pointerEvents:'none',boxSizing:'border-box',border:'4px dashed #00dfff'});
     overlayLayer.appendChild(o);previewElements.push({el:row.el,outline:o});positionOverlay(row.el,o);nc++;
-    const img=row.el.querySelector('img');if(img){const i=document.createElement('div');i.dataset.hibRc184Preview='1';Object.assign(i.style,{position:'absolute',pointerEvents:'none',boxSizing:'border-box',border:'2px dashed #ffd42a'});overlayLayer.appendChild(i);previewElements.push({el:img,outline:i});positionOverlay(img,i);nt++;}
+    const img=row.el.querySelector('img');if(img){const i=document.createElement('div');i.dataset.hibRc184Preview='1';Object.assign(i.style,{position:'absolute',pointerEvents:'none',boxSizing:'border-box',border:'4px dashed #ffd42a'});overlayLayer.appendChild(i);previewElements.push({el:img,outline:i});positionOverlay(img,i);nt++;}
    }
   }
   if(nc&&nt){pickPreviewOk=true;pickerMessage(pickMode==='review'||pickMode==='thumbnail'?'Final Preview: automatic and staged thumbnail (yellow) and card (cyan) boundaries are displayed. No changes are saved until Finish & Save Site.':'Preview is optional. If the yellow thumbnails and cyan cards look right, select Save Card.');}
