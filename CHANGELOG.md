@@ -1,5 +1,17 @@
 # Changelog
 
+## 3.0.3 — generic image-link fallback (upgrades 3.0.2; same add-on ID, same name)
+
+### Fixed
+* **Links Imagus does not recognise could never reach HIB's resolver.** After Imagus had its chance (2.5 s) and showed nothing, HIB reported "native preview not found" but then refused to continue, so only links with a confirmed Imagus failure were resolved. A finished grace period with no preview now allows the fallback for links that look like image wrappers. Successful Imagus previews, hover cancellation (a right-click no longer needs the pointer to stay on the link) and the existing confirmed-failure handling are unchanged.
+* **Text-only links with opaque addresses were ignored.** A link such as `https://imghost.example/o1mqu95aitxh` has no picture and no image-looking path, so it was never considered. Such links are now eligible when they are external, have one to three path parts that are not listing words (dir, folder, download, file, user, search, tag, watch ...), end in an opaque 8-24 character id that contains a digit, have short link text, and are not inside navigation. No host names are involved.
+* **Bounded discovery.** An address that yielded no verified picture is not tried again for 30 minutes, and a site with three misses is left alone until one of its links succeeds. Nothing is rewritten unless the background resolver finds media and the browser verifies it; this fallback accepts pictures only.
+* **Advert clips no longer beat the picture.** A banner-sized video (for example 300x250), a video without a layout box, or a muted looping video wrapped in a link to another site is ranked far below real pictures, so a wrapper page's advert clip is not chosen instead of the full image.
+* **The spinner never stopped.** After the picture was found, the spinner beside the link stayed. It is now removed when the link is ready.
+
+### Unchanged
+Everything else is as in 3.0.2. Normal left-click navigation, DLsite and IMGPV handling, `.html` image links and video discovery are untouched. No new permissions.
+
 ## 3.0.2 — bug fixes (upgrades 3.0.1; same add-on ID, same name)
 
 ### Fixed

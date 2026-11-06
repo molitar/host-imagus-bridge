@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Host Imagus Bridge",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Opens full-size pictures and plays videos from the sites you choose, through Imagus Reborn and the HIB player and gallery.",
   "permissions": [
     "<all_urls>",

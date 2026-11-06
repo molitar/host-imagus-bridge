@@ -3037,6 +3037,246 @@
     return null;
   }
 
+  /*
+   * HIB-V3021-GENERIC-TEXT-LINK
+   *
+   * Text-only external links with an opaque address (a bare "host/aB3dE5fG7hJ9"
+   * with no picture, no file name and no image-looking folder) were never
+   * eligible for generic resolution, so image hosts that are linked as plain
+   * text could not be previewed.
+   *
+   * This is NOT a host list. An anchor becomes a CANDIDATE only when all of the
+   * following hold:
+   *   - it is an external http(s) link (same-site links are rejected earlier),
+   *   - it is not a site's front page, not inside navigation, not a direct file
+   *     (archives, documents, torrents, audio...), and no folder name in its
+   *     path says "directory / download / list / account..." (download
+   *     directories, listings and account pages are not picture wrappers),
+   *   - the last part of its path is an opaque identifier (8-24 plain letters
+   *     and digits with at least one digit, optionally ending in .html/.php;
+   *     words, dated slugs with dashes and CamelCase page names do not count),
+   *   - its visible text is short or is the address itself.
+   *
+   * Being a candidate only lets the link reach the normal Imagus-first path.
+   * Nothing is rewritten and no popup is shown unless the background resolver
+   * finds a picture or video that the browser then verifies.
+   *
+   * Bounded discovery: an address whose resolver run found no usable media is
+   * not tried again for 30 minutes, and an origin that gave 3 such answers in a
+   * row is left alone until the page is reloaded.
+   */
+  const hibV3021FileExt =
+    /\.(?:zip|rar|7z|tar|gz|tgz|bz2|xz|iso|exe|msi|apk|dmg|pdf|epub|mobi|cbz|cbr|torrent|txt|srt|ass|ssa|vtt|docx?|xlsx?|csv|json|xml|mp3|flac|wav|ogg|m4a)$/i;
+
+  const hibV3021ListingWord =
+    /^(?:dir|dirs|directory|directories|folder|folders|download|downloads|dl|archive|archives|zip|torrent|torrents|magnet|list|lists|collection|collections|file|files|users?|profiles?|login|logout|register|signup|account|search|tags?|categor(?:y|ies)|forum|forums|threads?|topics?|watch|embed|redirect|out|go|away|link|links)$/i;
+
+  const hibV3021NoMedia =
+    new Map();
+
+  const hibV3021OriginMisses =
+    new Map();
+
+  const hibV3021NoMediaTtlMs =
+    30 * 60 * 1000;
+
+  const hibV3021OriginMissLimit =
+    3;
+
+  function hibV3021TextWrapperCandidate(
+    anchor
+  ) {
+    let url;
+
+    try {
+      url =
+        new URL(
+          anchor.href,
+          location.href
+        );
+    }
+    catch (error) {
+      return false;
+    }
+
+    if (
+      url.protocol !== "https:" &&
+      url.protocol !== "http:"
+    ) {
+      return false;
+    }
+
+    if (
+      url.username ||
+      url.password
+    ) {
+      return false;
+    }
+
+    const path =
+      url.pathname || "/";
+
+    if (
+      path === "/" &&
+      !url.search
+    ) {
+      return false;
+    }
+
+    if (
+      hibV3021FileExt.test(
+        path
+      )
+    ) {
+      return false;
+    }
+
+    const segments =
+      path
+        .split("/")
+        .filter(Boolean);
+
+    if (
+      !segments.length ||
+      segments.length > 3 ||
+      segments.some(
+        segment =>
+          hibV3021ListingWord.test(
+            segment
+          )
+      )
+    ) {
+      return false;
+    }
+
+    const token =
+      segments[
+        segments.length - 1
+      ].replace(
+        /\.(?:html?|php)$/i,
+        ""
+      );
+
+    if (
+      !/^[A-Za-z0-9]{8,24}$/.test(
+        token
+      ) ||
+      !/\d/.test(
+        token
+      )
+    ) {
+      return false;
+    }
+
+    const text =
+      (
+        anchor.textContent ||
+        ""
+      ).trim();
+
+    if (
+      text.length > 80
+    ) {
+      return false;
+    }
+
+    if (
+      anchor.closest &&
+      anchor.closest(
+        'nav,header,footer,[role="navigation"],[role="menu"],[role="menubar"],.menu,.navbar,.nav,.breadcrumb'
+      )
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function hibV3021MayProbe(
+    url
+  ) {
+    let origin;
+
+    try {
+      origin =
+        new URL(
+          url
+        ).origin;
+    }
+    catch (error) {
+      return false;
+    }
+
+    const when =
+      hibV3021NoMedia.get(
+        url
+      );
+
+    if (
+      when &&
+      Date.now() - when <
+        hibV3021NoMediaTtlMs
+    ) {
+      return false;
+    }
+
+    if (
+      (
+        hibV3021OriginMisses.get(
+          origin
+        ) || 0
+      ) >=
+        hibV3021OriginMissLimit
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function hibV3021NoteMiss(
+    url
+  ) {
+    hibV3021NoMedia.set(
+      url,
+      Date.now()
+    );
+
+    try {
+      const origin =
+        new URL(
+          url
+        ).origin;
+
+      hibV3021OriginMisses.set(
+        origin,
+        (
+          hibV3021OriginMisses.get(
+            origin
+          ) || 0
+        ) + 1
+      );
+    }
+    catch (error) {}
+  }
+
+  function hibV3021NoteHit(
+    url
+  ) {
+    hibV3021NoMedia.delete(
+      url
+    );
+
+    try {
+      hibV3021OriginMisses.delete(
+        new URL(
+          url
+        ).origin
+      );
+    }
+    catch (error) {}
+  }
+
   function wrapperLooking(
     anchor
   ) {
@@ -3088,6 +3328,9 @@
       ) ||
       /\/(?:image|images|img|photo|picture|pic|view|full|original|gallery|cover|p)\//i.test(
         href
+      ) ||
+      hibV3021TextWrapperCandidate(
+        anchor
       )
     );
   }
@@ -4900,8 +5143,7 @@ async function hibV234WaitForSankakuImagus(
   reason
 ) {
   const requireHover =
-    reason !==
-      "contextmenu";
+    !/^(?:contextmenu|right-click)/.test(reason);
 
   const started =
     Date.now();
@@ -5141,8 +5383,7 @@ async function hibV234WaitForSankakuImagus(
          * leaves the tile, do not launch a resolver for an abandoned hover.
          */
         if (
-          reason !==
-            "contextmenu" &&
+          !/^(?:contextmenu|right-click)/.test(reason) &&
           !hibV222AnchorStillHovered(
             anchor
           )
@@ -5261,8 +5502,7 @@ async function hibV222WaitForNativePreview(
    * Preserve the existing non-Sankaku native-first behavior unchanged.
    */
   const requireHover =
-    reason !==
-      "contextmenu";
+    !/^(?:contextmenu|right-click)/.test(reason);
 
   const started =
     Date.now();
@@ -5537,7 +5777,34 @@ async function hibV222WaitForNativePreview(
       hibV281Reason === 'imagus-r-js' ||
       hibV281Reason === 'imagus-delayed-r-js';
 
-    if (!hibV281ConfirmedFailure) {
+    /*
+     * HIB-V3021-NO-PREVIEW-FALLBACK
+     *
+     * hibV222WaitForNativePreview() answers "native-preview-not-found" when
+     * the whole native grace period passed (the pointer stayed on the link, or
+     * the user right-clicked) and Imagus showed nothing. Imagus never
+     * recognised such a link, so no R_js failure will ever be reported and the
+     * link could never reach the HIB resolver.
+     *
+     * That answer now also permits the fallback, but only
+     *   - for links that came through the unknown-wrapper path (the known
+     *     DLsite / IMGPV / xxpics / ouo paths and the Sankaku path keep their
+     *     existing rules),
+     *   - when the address is not in the "no media found" memory (see
+     *     hibV3021MayProbe).
+     * A visible native preview and a hover that ended still return before this
+     * point, and nothing is rewritten unless the resolved media is verified.
+     */
+    const hibV3021ViaNoPreview =
+      !hibV281ConfirmedFailure &&
+      hibV281Reason === 'native-preview-not-found' &&
+      /-unknown-wrapper$/.test(reason) &&
+      hibV3021MayProbe(originalUrl);
+
+    if (
+      !hibV281ConfirmedFailure &&
+      !hibV3021ViaNoPreview
+    ) {
       console.debug(
         '[HIB v2.1.5 generic] FALLBACK SKIPPED:',
         JSON.stringify({
@@ -5550,7 +5817,9 @@ async function hibV222WaitForNativePreview(
     }
 
     console.log(
-      '[HIB v2.1.5 generic] CONFIRMED IMAGUS FAILURE:',
+      hibV3021ViaNoPreview
+        ? '[HIB v3.0.2.1 generic] NO NATIVE PREVIEW AFTER GRACE - bounded fallback permitted:'
+        : '[HIB v2.1.5 generic] CONFIRMED IMAGUS FAILURE:',
       JSON.stringify({
         reason: hibV281Reason,
         fallbackPermitted: true
@@ -5675,6 +5944,14 @@ async function hibV222WaitForNativePreview(
         key
       );
 
+      if (
+        hibV3021ViaNoPreview
+      ) {
+        hibV3021NoteMiss(
+          originalUrl
+        );
+      }
+
       console.warn(
         "[HIB v2.1.5 generic] no verified candidate; original link untouched:",
         originalUrl,
@@ -5700,6 +5977,36 @@ async function hibV222WaitForNativePreview(
         );
     }
 
+    /*
+     * HIB-V3023-IMAGE-ONLY-NO-PREVIEW-PATH
+     * The no-native-preview fallback was added for picture wrappers. If it
+     * comes back with a video/audio file, it is not a picture wrapper (or
+     * the page's own advert clip was chosen): leave the link untouched.
+     */
+    if (
+      hibV3021ViaNoPreview &&
+      isDirectMedia
+    ) {
+      states.delete(
+        key
+      );
+
+      removeSpinner(
+        key
+      );
+
+      hibV3021NoteMiss(
+        originalUrl
+      );
+
+      console.warn(
+        "[HIB v3.0.2.3 generic] video/audio result ignored for a picture wrapper; link untouched:",
+        result.fullUrl
+      );
+
+      return;
+    }
+
     const verification =
       isDirectMedia
         ? await hibV226VerifyMedia(
@@ -5723,6 +6030,14 @@ async function hibV222WaitForNativePreview(
         key
       );
 
+      if (
+        hibV3021ViaNoPreview
+      ) {
+        hibV3021NoteMiss(
+          originalUrl
+        );
+      }
+
       console.warn(
         "[HIB v2.1.5 generic] candidate failed browser media verification:",
         result.fullUrl,
@@ -5730,6 +6045,14 @@ async function hibV222WaitForNativePreview(
       );
 
       return;
+    }
+
+    if (
+      hibV3021ViaNoPreview
+    ) {
+      hibV3021NoteHit(
+        originalUrl
+      );
     }
 
     /*
@@ -6001,6 +6324,22 @@ async function hibV222WaitForNativePreview(
     );
 
     hibV228MarkReady(
+      originalUrl,
+      result.fullUrl
+    );
+
+    /*
+     * HIB-V3024-SPINNER-STOP
+     * hibV228MarkReady() only finds anchors whose original address still
+     * equals the wrapper URL. The anchor was just replaced by a copy that
+     * already points at the picture, so the spinner next to it was never
+     * removed. Remove it by key and by the resolved anchor's metadata.
+     */
+    removeSpinner(
+      key
+    );
+
+    hibV221SweepResolvedSpinners(
       originalUrl,
       result.fullUrl
     );

@@ -5182,9 +5182,58 @@ async function hibV213InspectGenericTab(
         "video"
       )
     ) {
+      /*
+       * HIB-V3022-AD-SIZED-VIDEO
+       * A video box with a standard banner/ad size (300x250, 336x280, 728x90,
+       * 160x600 ...) is almost always an advertisement. It stays a candidate
+       * (a page whose only media is a small clip still resolves) but ranks
+       * far below real pictures, so a wrapper page's ad clip no longer beats
+       * the full image. Size-based only, no site names.
+       */
+      let hibAdPenalty = 0;
+      try {
+        const hibBox = video.getBoundingClientRect();
+        const bw = Math.round(hibBox.width), bh = Math.round(hibBox.height);
+        if (
+          bw > 0 && bh > 0 &&
+          ((bw <= 340 && bh <= 290) ||
+           (bh <= 100 && bw >= 400) ||
+           (bw <= 170 && bh >= 590) ||
+           (bw === 300 && bh === 600))
+        ) {
+          hibAdPenalty = 69000;
+        }
+        /* No box at all (hidden, blocked or not laid out in a background tab):
+         * judge by the declared size instead. */
+        else if (bw === 0 || bh === 0) {
+          const dw = parseInt(video.getAttribute("width") || (video.style && video.style.width) || "0", 10) || 0;
+          const dh = parseInt(video.getAttribute("height") || (video.style && video.style.height) || "0", 10) || 0;
+          if (
+            (dw > 0 && dw <= 340 && (dh === 0 || dh <= 290)) ||
+            (dw === 0 && dh === 0)
+          ) {
+            hibAdPenalty = 69000;
+          }
+        }
+        /* A silent looping clip wrapped in a link to ANOTHER site is a
+         * click-through advertisement, whatever its size. */
+        try {
+          const wrap = video.closest("a[href]");
+          if (
+            wrap &&
+            wrap.hostname &&
+            wrap.hostname !== location.hostname &&
+            video.muted !== false &&
+            video.loop
+          ) {
+            hibAdPenalty = 69000;
+          }
+        } catch (error) {}
+      } catch (error) {}
+
       addMedia(
         video.currentSrc,
-        70000,
+        70000 - hibAdPenalty,
         "video.currentSrc"
       );
 
@@ -5193,7 +5242,7 @@ async function hibV213InspectGenericTab(
           video.getAttribute(
             "src"
           ),
-        69000,
+        69000 - hibAdPenalty,
         "video.src"
       );
 
@@ -5208,7 +5257,7 @@ async function hibV213InspectGenericTab(
             source.getAttribute(
               "src"
             ),
-          68000,
+          68000 - hibAdPenalty,
           "video source"
         );
       }
